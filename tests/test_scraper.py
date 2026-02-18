@@ -291,9 +291,6 @@ class TestParsePostElement:
             "post_url": "https://linkedin.com/feed/update/urn:li:activity:123",
             "post_text": "Great insights on AI!",
             "media_type": "image",
-            "likes_count": 42,
-            "comments_count": 5,
-            "shares_count": 3,
             "post_timestamp": "2025-01-15T10:00:00Z",
         }
         post = scraper.parse_post_element(raw)
@@ -301,7 +298,6 @@ class TestParsePostElement:
         assert post.id == "post-123"
         assert post.author_name == "Jane Doe"
         assert post.post_text == "Great insights on AI!"
-        assert post.likes_count == 42
         assert post.platform == "linkedin"
 
     def test_minimal_fields(self, app_config):
@@ -317,8 +313,6 @@ class TestParsePostElement:
         assert post.id == "post-456"
         assert post.author_name == "John Smith"
         assert post.post_text == "Hello world"
-        assert post.likes_count == 0
-        assert post.comments_count == 0
         assert post.author_url is None
         assert post.platform == "linkedin"
 
@@ -333,16 +327,12 @@ class TestParsePostElement:
             "post_url": "https://linkedin.com/feed/update/urn:li:activity:789",
             "post_text": "Check this out",
             "media_type": "video",
-            "likes_count": 100,
-            "comments_count": 20,
-            "shares_count": 10,
             "post_timestamp": "2025-03-01T12:00:00Z",
         }
         post = scraper.parse_post_element(raw)
         assert post.author_url == "https://linkedin.com/in/alice"
         assert post.post_url == "https://linkedin.com/feed/update/urn:li:activity:789"
         assert post.media_type == "video"
-        assert post.shares_count == 10
         assert post.post_timestamp == "2025-03-01T12:00:00Z"
 
 

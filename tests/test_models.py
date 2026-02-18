@@ -9,7 +9,6 @@ def test_post_creation():
     )
     assert post.id == "test-123"
     assert post.platform == "linkedin"
-    assert post.likes_count == 0
     assert post.scraped_at is not None
 
 

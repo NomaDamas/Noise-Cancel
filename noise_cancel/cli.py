@@ -281,6 +281,9 @@ def deliver(
         applied_rules = row["applied_rules"]
         if isinstance(applied_rules, str):
             applied_rules = json.loads(applied_rules)
+        # Scraped text may contain surrogate characters that break JSON encoding
+        if post_row.get("post_text"):
+            post_row["post_text"] = post_row["post_text"].encode("utf-8", errors="replace").decode("utf-8")
         post = Post(**post_row)
         cls = Classification(
             id=row["id"],

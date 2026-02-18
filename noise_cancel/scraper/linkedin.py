@@ -24,10 +24,15 @@ _JS_EXTRACT_POSTS = """
     const elements = document.querySelectorAll('div[data-urn^="urn:li:activity"]');
     for (const el of elements) {
         const urn = el.getAttribute('data-urn') || '';
-        const authorEl = el.querySelector('.update-components-actor__name .visually-hidden');
+
+        // Try multiple selectors for author name (LinkedIn DOM changes frequently)
+        const authorEl =
+            el.querySelector('.update-components-actor__name .visually-hidden') ||
+            el.querySelector('.update-components-actor__title .visually-hidden') ||
+            el.querySelector('.update-components-actor__name span[aria-hidden="true"]') ||
+            el.querySelector('.update-components-actor__name');
         const authorLinkEl = el.querySelector('a.update-components-actor__meta-link');
         const textEl = el.querySelector('.update-components-text .break-words');
-        const postLinkEl = el.querySelector('a.update-components-actor__meta-link');
 
         const authorName = authorEl ? authorEl.textContent.trim() : '';
         const authorUrl = authorLinkEl ? authorLinkEl.href : '';
@@ -149,8 +154,5 @@ class LinkedInScraper(AbstractScraper):
             post_url=raw.get("post_url"),
             post_text=raw["post_text"],
             media_type=raw.get("media_type"),
-            likes_count=raw.get("likes_count", 0),
-            comments_count=raw.get("comments_count", 0),
-            shares_count=raw.get("shares_count", 0),
             post_timestamp=raw.get("post_timestamp"),
         )

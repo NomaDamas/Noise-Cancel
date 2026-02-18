@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from platformdirs import user_data_dir
 from pydantic import BaseModel, Field
 
-_DEFAULT_DATA_DIR = str(Path.home() / ".local" / "share" / "noise-cancel")
+_DEFAULT_DATA_DIR = user_data_dir("noise-cancel")
 
 _DEFAULT_GENERAL: dict[str, Any] = {
     "data_dir": _DEFAULT_DATA_DIR,
@@ -70,9 +71,9 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
-_DEFAULT_CONFIG_YAML = """\
+_DEFAULT_CONFIG_YAML = f"""\
 general:
-  data_dir: ~/.local/share/noise-cancel
+  data_dir: {_DEFAULT_DATA_DIR}
   max_posts_per_run: 50
 
 scraper:
@@ -141,5 +142,8 @@ def load_config(config_path: str | None = None) -> AppConfig:
         "classifier": _deep_merge(_DEFAULT_CLASSIFIER, raw.get("classifier", {})),
         "delivery": _deep_merge(_DEFAULT_DELIVERY, raw.get("delivery", {})),
     }
+
+    # Expand ~ in data_dir so Path("~/.local/...") resolves to the real home dir
+    merged["general"]["data_dir"] = str(Path(merged["general"]["data_dir"]).expanduser())
 
     return AppConfig(**merged)

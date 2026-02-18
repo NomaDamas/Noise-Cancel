@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import emoji as emoji_lib
+
 from noise_cancel.models import Classification, Post
 
 # Category -> emoji mapping (Slack emoji shortcodes)
 _CATEGORY_EMOJIS: dict[str, str] = {
     "Read": ":fire:",
-    "Skip": ":mute:",
+    "Skip": ":muted_speaker:",
 }
+
+
+def _emojize(text: str) -> str:
+    """Convert emoji shortcodes to proper Unicode characters."""
+    return emoji_lib.emojize(text, language="alias")
 
 
 def build_post_blocks(post: Post, classification: Classification, config: dict) -> list[dict]:
@@ -15,7 +22,7 @@ def build_post_blocks(post: Post, classification: Classification, config: dict) 
     include_reasoning = config.get("include_reasoning", True)
     enable_feedback = config.get("enable_feedback_buttons", True)
 
-    emoji = _CATEGORY_EMOJIS.get(classification.category, ":question:")
+    category_emoji = _CATEGORY_EMOJIS.get(classification.category, ":question:")
     blocks: list[dict] = []
 
     # Header with category emoji + name
@@ -23,7 +30,7 @@ def build_post_blocks(post: Post, classification: Classification, config: dict) 
         "type": "header",
         "text": {
             "type": "plain_text",
-            "text": f"{emoji} {classification.category}",
+            "text": _emojize(f"{category_emoji} {classification.category}"),
             "emoji": True,
         },
     })
@@ -66,17 +73,17 @@ def build_post_blocks(post: Post, classification: Classification, config: dict) 
         action_elements.extend([
             {
                 "type": "button",
-                "text": {"type": "plain_text", "text": "\ud83d\udc4d Useful", "emoji": True},
+                "text": {"type": "plain_text", "text": _emojize(":thumbsup: Useful"), "emoji": True},
                 "value": f"useful|{post.id}",
             },
             {
                 "type": "button",
-                "text": {"type": "plain_text", "text": "\ud83d\udc4e Not Useful", "emoji": True},
+                "text": {"type": "plain_text", "text": _emojize(":thumbsdown: Not Useful"), "emoji": True},
                 "value": f"not_useful|{post.id}",
             },
             {
                 "type": "button",
-                "text": {"type": "plain_text", "text": "\ud83d\udd07 Mute Similar", "emoji": True},
+                "text": {"type": "plain_text", "text": _emojize(":muted_speaker: Mute Similar"), "emoji": True},
                 "value": f"mute_similar|{post.id}",
             },
         ])

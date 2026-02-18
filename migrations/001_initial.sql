@@ -18,9 +18,6 @@ CREATE TABLE IF NOT EXISTS posts (
     post_url        TEXT UNIQUE,
     post_text       TEXT NOT NULL,
     media_type      TEXT,
-    likes_count     INTEGER DEFAULT 0,
-    comments_count  INTEGER DEFAULT 0,
-    shares_count    INTEGER DEFAULT 0,
     post_timestamp  TEXT,
     scraped_at      TEXT NOT NULL DEFAULT (datetime('now')),
     run_id          TEXT REFERENCES run_logs(id)

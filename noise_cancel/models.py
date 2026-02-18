@@ -17,9 +17,6 @@ class Post(BaseModel):
     post_url: str | None = None
     post_text: str
     media_type: str | None = None
-    likes_count: int = 0
-    comments_count: int = 0
-    shares_count: int = 0
     post_timestamp: str | None = None
     scraped_at: str = Field(default_factory=_now_iso)
     run_id: str | None = None
