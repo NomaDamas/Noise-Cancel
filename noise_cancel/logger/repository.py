@@ -124,6 +124,11 @@ def update_run_log(conn: sqlite3.Connection, run_id: str, **kwargs: object) -> N
     conn.commit()
 
 
+def get_post_by_id(conn: sqlite3.Connection, post_id: str) -> dict | None:
+    row = conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def get_posts(
     conn: sqlite3.Connection,
     limit: int = 50,

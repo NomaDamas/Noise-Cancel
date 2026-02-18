@@ -432,16 +432,204 @@ class TestLinkedInScraperLogin:
         mock_pw.stop.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_scrape_feed_stub(self, app_config):
-        from noise_cancel.scraper.linkedin import LinkedInScraper
-
-        scraper = LinkedInScraper(app_config)
-        result = await scraper.scrape_feed(scroll_count=5)
-        assert result == []
-
-    @pytest.mark.anyio
-    async def test_close_stub(self, app_config):
+    async def test_close_noop_when_no_playwright(self, app_config):
         from noise_cancel.scraper.linkedin import LinkedInScraper
 
         scraper = LinkedInScraper(app_config)
         await scraper.close()
+        assert scraper._playwright is None
+
+
+# ---------------------------------------------------------------------------
+# load_storage_state tests
+# ---------------------------------------------------------------------------
+class TestLoadStorageState:
+    def test_sets_internal_state(self, app_config):
+        from noise_cancel.scraper.linkedin import LinkedInScraper
+
+        scraper = LinkedInScraper(app_config)
+        state = {"cookies": [{"name": "li_at", "value": "tok"}]}
+        scraper.load_storage_state(state)
+        assert scraper.storage_state == state
+
+    def test_overwrites_previous_state(self, app_config):
+        from noise_cancel.scraper.linkedin import LinkedInScraper
+
+        scraper = LinkedInScraper(app_config)
+        scraper.load_storage_state({"cookies": [{"name": "a"}]})
+        scraper.load_storage_state({"cookies": [{"name": "b"}]})
+        assert scraper.storage_state == {"cookies": [{"name": "b"}]}
+
+
+# ---------------------------------------------------------------------------
+# scrape_feed tests
+# ---------------------------------------------------------------------------
+def _mock_scrape_playwright(*, feed_url="https://www.linkedin.com/feed", raw_posts=None):
+    """Build a mock Playwright chain suitable for scrape_feed testing."""
+    from unittest.mock import AsyncMock, MagicMock, PropertyMock
+
+    if raw_posts is None:
+        raw_posts = []
+
+    mock_page = AsyncMock()
+    # page.url is a regular property, not async
+    type(mock_page).url = PropertyMock(return_value=feed_url)
+    mock_page.evaluate = AsyncMock(return_value=raw_posts)
+    mock_page.mouse = AsyncMock()
+
+    mock_context = AsyncMock()
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+
+    mock_browser = AsyncMock()
+    mock_browser.new_context = AsyncMock(return_value=mock_context)
+
+    mock_pw = AsyncMock()
+    mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
+
+    mock_cm = MagicMock()
+    mock_cm.start = AsyncMock(return_value=mock_pw)
+
+    mock_module = MagicMock()
+    mock_module.async_playwright.return_value = mock_cm
+
+    return mock_module, mock_pw, mock_browser, mock_context, mock_page
+
+
+class TestScrapeFeed:
+    @pytest.mark.anyio
+    async def test_navigates_to_feed(self, app_config):
+        from unittest.mock import patch
+
+        from noise_cancel.scraper.linkedin import LinkedInScraper
+
+        scraper = LinkedInScraper(app_config)
+        scraper.load_storage_state({"cookies": []})
+        mock_module, _, _, _, mock_page = _mock_scrape_playwright()
+
+        with (
+            patch("noise_cancel.scraper.linkedin.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.linkedin.human_scroll_sequence", return_value=[]),
+            patch("noise_cancel.scraper.linkedin.random_delay", return_value=0.0),
+        ):
+            await scraper.scrape_feed(scroll_count=0)
+
+        mock_page.goto.assert_called_once_with("https://www.linkedin.com/feed", wait_until="domcontentloaded")
+
+    @pytest.mark.anyio
+    async def test_scrolls_page(self, app_config):
+        from unittest.mock import AsyncMock, patch
+
+        from noise_cancel.scraper.linkedin import LinkedInScraper
+
+        scraper = LinkedInScraper(app_config)
+        scraper.load_storage_state({"cookies": []})
+        scroll_actions = [
+            {"scroll_y": 500, "delay": 0.0, "direction": "down"},
+            {"scroll_y": 300, "delay": 0.0, "direction": "up"},
+        ]
+        mock_module, _, _, _, mock_page = _mock_scrape_playwright()
+
+        with (
+            patch("noise_cancel.scraper.linkedin.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.linkedin.human_scroll_sequence", return_value=scroll_actions),
+            patch("noise_cancel.scraper.linkedin.random_delay", return_value=0.0),
+            patch("noise_cancel.scraper.linkedin.asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await scraper.scrape_feed(scroll_count=2)
+
+        # Two scroll calls: down +500, up -300
+        calls = mock_page.mouse.wheel.call_args_list
+        assert len(calls) == 2
+        assert calls[0].args == (0, 500)
+        assert calls[1].args == (0, -300)
+
+    @pytest.mark.anyio
+    async def test_extracts_posts(self, app_config):
+        from unittest.mock import patch
+
+        from noise_cancel.scraper.linkedin import LinkedInScraper
+
+        raw = [
+            {"id": "urn:li:activity:111", "author_name": "Alice", "post_text": "Hello"},
+            {"id": "urn:li:activity:222", "author_name": "Bob", "post_text": "World"},
+        ]
+        scraper = LinkedInScraper(app_config)
+        scraper.load_storage_state({"cookies": []})
+        mock_module, _, _, _, _ = _mock_scrape_playwright(raw_posts=raw)
+
+        with (
+            patch("noise_cancel.scraper.linkedin.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.linkedin.human_scroll_sequence", return_value=[]),
+            patch("noise_cancel.scraper.linkedin.random_delay", return_value=0.0),
+        ):
+            posts = await scraper.scrape_feed(scroll_count=0)
+
+        assert len(posts) == 2
+        assert all(isinstance(p, Post) for p in posts)
+        assert posts[0].id == "urn:li:activity:111"
+        assert posts[1].author_name == "Bob"
+
+    @pytest.mark.anyio
+    async def test_deduplicates_posts(self, app_config):
+        from unittest.mock import patch
+
+        from noise_cancel.scraper.linkedin import LinkedInScraper
+
+        raw = [
+            {"id": "urn:li:activity:111", "author_name": "Alice", "post_text": "Hello"},
+            {"id": "urn:li:activity:111", "author_name": "Alice", "post_text": "Hello"},
+            {"id": "urn:li:activity:222", "author_name": "Bob", "post_text": "World"},
+        ]
+        scraper = LinkedInScraper(app_config)
+        scraper.load_storage_state({"cookies": []})
+        mock_module, _, _, _, _ = _mock_scrape_playwright(raw_posts=raw)
+
+        with (
+            patch("noise_cancel.scraper.linkedin.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.linkedin.human_scroll_sequence", return_value=[]),
+            patch("noise_cancel.scraper.linkedin.random_delay", return_value=0.0),
+        ):
+            posts = await scraper.scrape_feed(scroll_count=0)
+
+        assert len(posts) == 2
+
+    @pytest.mark.anyio
+    async def test_skips_empty_text(self, app_config):
+        from unittest.mock import patch
+
+        from noise_cancel.scraper.linkedin import LinkedInScraper
+
+        raw = [
+            {"id": "urn:li:activity:111", "author_name": "Alice", "post_text": "Hello"},
+            {"id": "urn:li:activity:222", "author_name": "Bob", "post_text": ""},
+            {"id": "urn:li:activity:333", "author_name": "Charlie", "post_text": "Bye"},
+        ]
+        scraper = LinkedInScraper(app_config)
+        scraper.load_storage_state({"cookies": []})
+        mock_module, _, _, _, _ = _mock_scrape_playwright(raw_posts=raw)
+
+        with (
+            patch("noise_cancel.scraper.linkedin.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.linkedin.human_scroll_sequence", return_value=[]),
+            patch("noise_cancel.scraper.linkedin.random_delay", return_value=0.0),
+        ):
+            posts = await scraper.scrape_feed(scroll_count=0)
+
+        assert len(posts) == 2
+        assert {p.id for p in posts} == {"urn:li:activity:111", "urn:li:activity:333"}
+
+    @pytest.mark.anyio
+    async def test_raises_on_login_redirect(self, app_config):
+        from unittest.mock import patch
+
+        from noise_cancel.scraper.linkedin import LinkedInScraper
+
+        scraper = LinkedInScraper(app_config)
+        scraper.load_storage_state({"cookies": []})
+        mock_module, _, _, _, _ = _mock_scrape_playwright(feed_url="https://www.linkedin.com/login")
+
+        with (
+            patch("noise_cancel.scraper.linkedin.import_module", return_value=mock_module),
+            pytest.raises(RuntimeError, match="Session expired"),
+        ):
+            await scraper.scrape_feed(scroll_count=0)
