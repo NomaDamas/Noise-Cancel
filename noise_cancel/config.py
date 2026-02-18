@@ -23,22 +23,29 @@ _DEFAULT_SCRAPER: dict[str, Any] = {
 }
 
 _DEFAULT_CLASSIFIER: dict[str, Any] = {
-    "model": "claude-haiku-4-5-20251001",
+    "model": "claude-sonnet-4-6",
     "batch_size": 10,
     "temperature": 0.0,
     "categories": [
-        {"name": "Must Read", "description": "High-value content directly relevant to interests", "emoji": ":fire:"},
-        {"name": "Interesting", "description": "Worth a quick look, indirectly helpful", "emoji": ":eyes:"},
-        {"name": "Noise", "description": "Engagement bait, humble brag, not worth reading", "emoji": ":mute:"},
-        {"name": "Spam", "description": "Ads, sales, irrelevant promotions", "emoji": ":no_entry:"},
+        {
+            "name": "Read",
+            "description": "Worth reading - valuable insights, relevant industry news, useful knowledge",
+            "emoji": ":fire:",
+        },
+        {
+            "name": "Skip",
+            "description": "Not worth reading - engagement bait, humble brag, ads, spam, irrelevant",
+            "emoji": ":mute:",
+        },
     ],
-    "rules": [],
+    "whitelist": {"keywords": [], "authors": []},
+    "blacklist": {"keywords": [], "authors": []},
 }
 
 _DEFAULT_DELIVERY: dict[str, Any] = {
     "method": "slack",
     "slack": {
-        "include_categories": ["Must Read", "Interesting"],
+        "include_categories": ["Read"],
         "include_reasoning": True,
         "max_text_preview": 300,
         "enable_feedback_buttons": True,
@@ -63,12 +70,62 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
+_DEFAULT_CONFIG_YAML = """\
+general:
+  data_dir: ~/.local/share/noise-cancel
+  max_posts_per_run: 50
+
+scraper:
+  headless: true
+  scroll_count: 10
+  scroll_delay_min: 1.5
+  scroll_delay_max: 3.5
+  session_ttl_days: 7
+
+classifier:
+  model: claude-sonnet-4-6
+  batch_size: 10
+  temperature: 0.0
+  categories:
+    - name: Read
+      description: "Worth reading - valuable insights, relevant industry news, useful knowledge"
+      emoji: ":fire:"
+    - name: Skip
+      description: "Not worth reading - engagement bait, humble brag, ads, spam, irrelevant"
+      emoji: ":mute:"
+  whitelist:
+    keywords: []     # Posts containing these keywords are always Read
+    authors: []      # Posts by these authors are always Read
+  blacklist:
+    keywords: []     # Posts containing these keywords are always Skip
+    authors: []      # Posts by these authors are always Skip
+
+delivery:
+  method: slack
+  slack:
+    include_categories:
+      - Read
+    include_reasoning: true
+    max_text_preview: 300
+    enable_feedback_buttons: true
+"""
+
+
+def default_config_path() -> Path:
+    return Path.home() / ".config" / "noise-cancel" / "config.yaml"
+
+
+def generate_default_config(config_path: Path | None = None) -> Path:
+    """Write the default config YAML to disk. Return the path written."""
+    path = config_path or default_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_DEFAULT_CONFIG_YAML)
+    return path
+
+
 def load_config(config_path: str | None = None) -> AppConfig:
     if config_path is None:
-        config_path = os.environ.get(
-            "NC_CONFIG_PATH",
-            str(Path.home() / ".config" / "noise-cancel" / "config.yaml"),
-        )
+        config_path = os.environ.get("NC_CONFIG_PATH", str(default_config_path()))
 
     raw: dict[str, Any] = {}
     path = Path(config_path)

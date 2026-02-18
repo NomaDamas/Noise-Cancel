@@ -17,13 +17,13 @@ def test_classification_creation():
     c = Classification(
         id="cls-1",
         post_id="test-123",
-        category="Must Read",
+        category="Read",
         confidence=0.95,
         reasoning="Contains AI research findings",
         applied_rules=["prioritize_ai_research"],
-        model_used="claude-haiku-4-5-20251001",
+        model_used="claude-sonnet-4-6",
     )
-    assert c.category == "Must Read"
+    assert c.category == "Read"
     assert c.confidence == 0.95
     assert c.delivered is False
 

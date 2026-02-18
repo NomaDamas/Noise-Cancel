@@ -22,38 +22,29 @@ def _make_post(index: int = 0, text: str = "Hello world", author: str = "Alice")
 
 def _make_config(**overrides) -> AppConfig:
     classifier = {
-        "model": "claude-haiku-4-5-20251001",
+        "model": "claude-sonnet-4-6",
         "batch_size": 5,
         "temperature": 0.0,
         "categories": [
-            {"name": "Must Read", "description": "High-value content", "emoji": ":fire:"},
-            {"name": "Interesting", "description": "Worth a quick look", "emoji": ":eyes:"},
-            {"name": "Noise", "description": "Engagement bait", "emoji": ":mute:"},
-            {"name": "Spam", "description": "Ads, irrelevant", "emoji": ":no_entry:"},
-        ],
-        "rules": [
             {
-                "name": "prioritize_ai_research",
-                "type": "boost",
-                "conditions": {"keywords": ["research paper", "arxiv"]},
-                "target_category": "Must Read",
-                "priority": 10,
+                "name": "Read",
+                "description": "Worth reading - valuable insights, relevant industry news, useful knowledge",
+                "emoji": ":fire:",
             },
             {
-                "name": "suppress_engagement_bait",
-                "type": "suppress",
-                "conditions": {"text_contains_any": ["agree?", "thoughts?", "like if you"]},
-                "target_category": "Noise",
-                "priority": 5,
-            },
-            {
-                "name": "boost_from_author",
-                "type": "boost",
-                "conditions": {"author_contains": "Yann LeCun"},
-                "target_category": "Must Read",
-                "priority": 8,
+                "name": "Skip",
+                "description": "Not worth reading - engagement bait, humble brag, ads, spam, irrelevant",
+                "emoji": ":mute:",
             },
         ],
+        "whitelist": {
+            "keywords": ["research paper", "arxiv"],
+            "authors": ["Yann LeCun"],
+        },
+        "blacklist": {
+            "keywords": ["agree?", "thoughts?", "like if you"],
+            "authors": [],
+        },
     }
     classifier.update(overrides)
     return AppConfig(
@@ -71,12 +62,12 @@ class TestPostClassification:
     def test_valid_classification(self):
         pc = PostClassification(
             post_index=0,
-            category="Must Read",
+            category="Read",
             confidence=0.95,
             reasoning="Very relevant content",
         )
         assert pc.post_index == 0
-        assert pc.category == "Must Read"
+        assert pc.category == "Read"
         assert pc.confidence == 0.95
         assert pc.reasoning == "Very relevant content"
         assert pc.applied_rules == []
@@ -84,16 +75,16 @@ class TestPostClassification:
     def test_with_applied_rules(self):
         pc = PostClassification(
             post_index=1,
-            category="Noise",
+            category="Read",
             confidence=0.8,
-            reasoning="Engagement bait detected",
-            applied_rules=["suppress_engagement_bait"],
+            reasoning="Whitelisted keyword match",
+            applied_rules=["whitelist"],
         )
-        assert pc.applied_rules == ["suppress_engagement_bait"]
+        assert pc.applied_rules == ["whitelist"]
 
     def test_confidence_boundaries(self):
-        pc_low = PostClassification(post_index=0, category="Spam", confidence=0.0, reasoning="r")
-        pc_high = PostClassification(post_index=0, category="Spam", confidence=1.0, reasoning="r")
+        pc_low = PostClassification(post_index=0, category="Skip", confidence=0.0, reasoning="r")
+        pc_high = PostClassification(post_index=0, category="Skip", confidence=1.0, reasoning="r")
         assert pc_low.confidence == 0.0
         assert pc_high.confidence == 1.0
 
@@ -104,17 +95,17 @@ class TestBatchClassificationResult:
         assert result.classifications == []
 
     def test_multiple_classifications(self):
-        items = [PostClassification(post_index=i, category="Noise", confidence=0.5, reasoning="r") for i in range(3)]
+        items = [PostClassification(post_index=i, category="Skip", confidence=0.5, reasoning="r") for i in range(3)]
         result = BatchClassificationResult(classifications=items)
         assert len(result.classifications) == 3
         assert result.classifications[1].post_index == 1
 
     def test_json_roundtrip(self):
-        pc = PostClassification(post_index=0, category="Must Read", confidence=0.9, reasoning="good")
+        pc = PostClassification(post_index=0, category="Read", confidence=0.9, reasoning="good")
         result = BatchClassificationResult(classifications=[pc])
         data = json.loads(result.model_dump_json())
         restored = BatchClassificationResult(**data)
-        assert restored.classifications[0].category == "Must Read"
+        assert restored.classifications[0].category == "Read"
 
 
 # ===========================================================================
@@ -127,36 +118,38 @@ class TestBuildSystemPrompt:
         from noise_cancel.classifier.prompts import build_system_prompt
 
         categories = [
-            {"name": "Must Read", "description": "High-value content", "emoji": ":fire:"},
-            {"name": "Spam", "description": "Ads", "emoji": ":no_entry:"},
+            {"name": "Read", "description": "Worth reading - valuable insights", "emoji": ":fire:"},
+            {"name": "Skip", "description": "Not worth reading", "emoji": ":mute:"},
         ]
-        prompt = build_system_prompt(categories=categories, rules=[])
-        assert "Must Read" in prompt
-        assert "High-value content" in prompt
-        assert "Spam" in prompt
+        prompt = build_system_prompt(categories=categories)
+        assert "Read" in prompt
+        assert "Worth reading - valuable insights" in prompt
+        assert "Skip" in prompt
 
-    def test_contains_rules(self):
+    def test_contains_whitelist(self):
         from noise_cancel.classifier.prompts import build_system_prompt
 
-        rules = [
-            {
-                "name": "boost_ai",
-                "type": "boost",
-                "conditions": {"keywords": ["arxiv"]},
-                "target_category": "Must Read",
-                "priority": 10,
-            },
-        ]
-        prompt = build_system_prompt(categories=[], rules=rules)
-        assert "boost_ai" in prompt
+        whitelist = {"keywords": ["arxiv"], "authors": ["Yann LeCun"]}
+        prompt = build_system_prompt(categories=[], whitelist=whitelist)
         assert "arxiv" in prompt
+        assert "Yann LeCun" in prompt
+        assert "Always classify as **Read**" in prompt
 
-    def test_empty_rules(self):
+    def test_contains_blacklist(self):
         from noise_cancel.classifier.prompts import build_system_prompt
 
-        prompt = build_system_prompt(categories=[], rules=[])
+        blacklist = {"keywords": ["agree?"], "authors": []}
+        prompt = build_system_prompt(categories=[], blacklist=blacklist)
+        assert "agree?" in prompt
+        assert "Always classify as **Skip**" in prompt
+
+    def test_empty_lists(self):
+        from noise_cancel.classifier.prompts import build_system_prompt
+
+        prompt = build_system_prompt(categories=[])
         assert isinstance(prompt, str)
         assert len(prompt) > 0
+        assert "Override Rules" not in prompt
 
 
 class TestBuildUserPrompt:
@@ -186,95 +179,66 @@ class TestBuildUserPrompt:
 
 
 # ===========================================================================
-# Rule matching tests
+# Whitelist / blacklist matching tests
 # ===========================================================================
 
 
-class TestCheckRuleMatch:
-    def test_keywords_match(self):
-        from noise_cancel.classifier.prompts import check_rule_match
+class TestCheckWhitelist:
+    def test_keyword_match(self):
+        from noise_cancel.classifier.prompts import check_whitelist
 
         post = _make_post(text="Check out this research paper on arxiv about LLMs")
-        rule = {
-            "name": "boost_ai",
-            "type": "boost",
-            "conditions": {"keywords": ["research paper", "arxiv"]},
-            "target_category": "Must Read",
-            "priority": 10,
-        }
-        assert check_rule_match(post, rule) is True
+        assert check_whitelist(post, {"keywords": ["research paper", "arxiv"], "authors": []}) is True
 
-    def test_keywords_no_match(self):
-        from noise_cancel.classifier.prompts import check_rule_match
+    def test_keyword_no_match(self):
+        from noise_cancel.classifier.prompts import check_whitelist
 
         post = _make_post(text="Just a normal post about cooking")
-        rule = {
-            "name": "boost_ai",
-            "type": "boost",
-            "conditions": {"keywords": ["research paper", "arxiv"]},
-            "target_category": "Must Read",
-            "priority": 10,
-        }
-        assert check_rule_match(post, rule) is False
+        assert check_whitelist(post, {"keywords": ["research paper", "arxiv"], "authors": []}) is False
 
-    def test_text_contains_any_match(self):
-        from noise_cancel.classifier.prompts import check_rule_match
-
-        post = _make_post(text="This is amazing, agree?")
-        rule = {
-            "name": "suppress_bait",
-            "type": "suppress",
-            "conditions": {"text_contains_any": ["agree?", "thoughts?"]},
-            "target_category": "Noise",
-            "priority": 5,
-        }
-        assert check_rule_match(post, rule) is True
-
-    def test_text_contains_any_no_match(self):
-        from noise_cancel.classifier.prompts import check_rule_match
-
-        post = _make_post(text="Solid technical analysis of transformers")
-        rule = {
-            "name": "suppress_bait",
-            "type": "suppress",
-            "conditions": {"text_contains_any": ["agree?", "thoughts?"]},
-            "target_category": "Noise",
-            "priority": 5,
-        }
-        assert check_rule_match(post, rule) is False
-
-    def test_author_contains_match(self):
-        from noise_cancel.classifier.prompts import check_rule_match
+    def test_author_match(self):
+        from noise_cancel.classifier.prompts import check_whitelist
 
         post = _make_post(text="Some post", author="Yann LeCun")
-        rule = {
-            "name": "boost_author",
-            "type": "boost",
-            "conditions": {"author_contains": "Yann LeCun"},
-            "target_category": "Must Read",
-            "priority": 8,
-        }
-        assert check_rule_match(post, rule) is True
+        assert check_whitelist(post, {"keywords": [], "authors": ["Yann LeCun"]}) is True
 
-    def test_author_contains_case_insensitive(self):
-        from noise_cancel.classifier.prompts import check_rule_match
+    def test_author_case_insensitive(self):
+        from noise_cancel.classifier.prompts import check_whitelist
 
         post = _make_post(text="Some post", author="yann lecun")
-        rule = {
-            "name": "boost_author",
-            "type": "boost",
-            "conditions": {"author_contains": "Yann LeCun"},
-            "target_category": "Must Read",
-            "priority": 8,
-        }
-        assert check_rule_match(post, rule) is True
+        assert check_whitelist(post, {"keywords": [], "authors": ["Yann LeCun"]}) is True
 
-    def test_no_conditions(self):
-        from noise_cancel.classifier.prompts import check_rule_match
+    def test_empty_whitelist(self):
+        from noise_cancel.classifier.prompts import check_whitelist
 
         post = _make_post(text="Anything")
-        rule = {"name": "empty", "type": "boost", "conditions": {}, "target_category": "Must Read", "priority": 1}
-        assert check_rule_match(post, rule) is False
+        assert check_whitelist(post, {"keywords": [], "authors": []}) is False
+
+    def test_empty_dict(self):
+        from noise_cancel.classifier.prompts import check_whitelist
+
+        post = _make_post(text="Anything")
+        assert check_whitelist(post, {}) is False
+
+
+class TestCheckBlacklist:
+    def test_keyword_match(self):
+        from noise_cancel.classifier.prompts import check_blacklist
+
+        post = _make_post(text="This is amazing, agree?")
+        assert check_blacklist(post, {"keywords": ["agree?", "thoughts?"], "authors": []}) is True
+
+    def test_keyword_no_match(self):
+        from noise_cancel.classifier.prompts import check_blacklist
+
+        post = _make_post(text="Solid technical analysis of transformers")
+        assert check_blacklist(post, {"keywords": ["agree?", "thoughts?"], "authors": []}) is False
+
+    def test_author_match(self):
+        from noise_cancel.classifier.prompts import check_blacklist
+
+        post = _make_post(text="Buy my course!", author="Spammy Steve")
+        assert check_blacklist(post, {"keywords": [], "authors": ["Spammy Steve"]}) is True
 
 
 # ===========================================================================
@@ -282,75 +246,118 @@ class TestCheckRuleMatch:
 # ===========================================================================
 
 
-class TestApplyRuleOverrides:
-    def test_boost_rule_overrides_category(self):
+class TestPreFilterWhitelistBlacklist:
+    """Whitelist/blacklist are resolved before API call in classify_posts()."""
+
+    def test_whitelist_skips_api(self):
         from noise_cancel.classifier.engine import ClassificationEngine
 
         config = _make_config()
         engine = ClassificationEngine(config)
-        post = _make_post(text="New research paper on arxiv about LLMs")
-        classification = PostClassification(
-            post_index=0,
-            category="Interesting",
-            confidence=0.7,
-            reasoning="Somewhat relevant",
-        )
-        rules = config.classifier["rules"]
-        result = engine.apply_rule_overrides(post, classification, rules)
-        assert result.category == "Must Read"
-        assert "prioritize_ai_research" in result.applied_rules
+        mock_client = MagicMock()
+        engine._client = mock_client
 
-    def test_suppress_rule_overrides_category(self):
+        # All posts match whitelist ("arxiv") — API should not be called
+        posts = [_make_post(0, "research paper on arxiv"), _make_post(1, "new arxiv preprint")]
+        results = engine.classify_posts(posts)
+
+        assert len(results) == 2
+        assert all(r.category == "Read" for r in results)
+        assert all(r.applied_rules == ["whitelist"] for r in results)
+        mock_client.messages.create.assert_not_called()
+
+    def test_blacklist_skips_api(self):
         from noise_cancel.classifier.engine import ClassificationEngine
 
         config = _make_config()
         engine = ClassificationEngine(config)
-        post = _make_post(text="This is so great, agree?")
-        classification = PostClassification(
-            post_index=0,
-            category="Interesting",
-            confidence=0.6,
-            reasoning="Seems interesting",
-        )
-        rules = config.classifier["rules"]
-        result = engine.apply_rule_overrides(post, classification, rules)
-        assert result.category == "Noise"
-        assert "suppress_engagement_bait" in result.applied_rules
+        mock_client = MagicMock()
+        engine._client = mock_client
 
-    def test_no_matching_rules(self):
+        posts = [_make_post(0, "This is amazing, agree?")]
+        results = engine.classify_posts(posts)
+
+        assert len(results) == 1
+        assert results[0].category == "Skip"
+        assert results[0].applied_rules == ["blacklist"]
+        mock_client.messages.create.assert_not_called()
+
+    def test_whitelist_wins_over_blacklist(self):
         from noise_cancel.classifier.engine import ClassificationEngine
 
         config = _make_config()
         engine = ClassificationEngine(config)
-        post = _make_post(text="Normal technical post about databases")
-        classification = PostClassification(
-            post_index=0,
-            category="Interesting",
-            confidence=0.75,
-            reasoning="Good content",
-        )
-        rules = config.classifier["rules"]
-        result = engine.apply_rule_overrides(post, classification, rules)
-        assert result.category == "Interesting"
-        assert result.applied_rules == []
+        mock_client = MagicMock()
+        engine._client = mock_client
 
-    def test_highest_priority_rule_wins(self):
+        # Matches both whitelist ("arxiv") and blacklist ("agree?")
+        posts = [_make_post(0, "research paper on arxiv, agree?")]
+        results = engine.classify_posts(posts)
+
+        assert results[0].category == "Read"
+        assert results[0].applied_rules == ["whitelist"]
+        mock_client.messages.create.assert_not_called()
+
+    def test_mixed_pre_filter_and_api(self):
         from noise_cancel.classifier.engine import ClassificationEngine
 
         config = _make_config()
         engine = ClassificationEngine(config)
-        # Post matches both boost (priority 10) and suppress (priority 5)
-        post = _make_post(text="research paper on arxiv, agree?")
-        classification = PostClassification(
-            post_index=0,
-            category="Interesting",
-            confidence=0.6,
-            reasoning="Mixed",
-        )
-        rules = config.classifier["rules"]
-        result = engine.apply_rule_overrides(post, classification, rules)
-        # Boost rule has priority 10 > suppress priority 5
-        assert result.category == "Must Read"
+        mock_client = MagicMock()
+        engine._client = mock_client
+
+        # Post 0: whitelist match (no API), Post 1: no match (API), Post 2: blacklist match (no API)
+        mock_tool_block = MagicMock()
+        mock_tool_block.type = "tool_use"
+        mock_tool_block.input = {
+            "classifications": [{"post_index": 0, "category": "Read", "confidence": 0.7, "reasoning": "decent"}]
+        }
+        mock_response = MagicMock()
+        mock_response.content = [mock_tool_block]
+        mock_client.messages.create.return_value = mock_response
+
+        posts = [
+            _make_post(0, "new arxiv paper on LLMs"),
+            _make_post(1, "Normal post about databases"),
+            _make_post(2, "Like if you agree with me"),
+        ]
+        results = engine.classify_posts(posts)
+
+        assert len(results) == 3
+        assert results[0].category == "Read"
+        assert results[0].applied_rules == ["whitelist"]
+        assert results[1].category == "Read"
+        assert results[1].applied_rules == []
+        assert results[2].category == "Skip"
+        assert results[2].applied_rules == ["blacklist"]
+        # Only 1 API call for the 1 unmatched post
+        mock_client.messages.create.assert_called_once()
+
+    def test_no_match_all_go_to_api(self):
+        from noise_cancel.classifier.engine import ClassificationEngine
+
+        config = _make_config(whitelist={"keywords": [], "authors": []}, blacklist={"keywords": [], "authors": []})
+        engine = ClassificationEngine(config)
+        mock_client = MagicMock()
+        engine._client = mock_client
+
+        mock_tool_block = MagicMock()
+        mock_tool_block.type = "tool_use"
+        mock_tool_block.input = {
+            "classifications": [
+                {"post_index": 0, "category": "Read", "confidence": 0.8, "reasoning": "r"},
+                {"post_index": 1, "category": "Skip", "confidence": 0.6, "reasoning": "r"},
+            ]
+        }
+        mock_response = MagicMock()
+        mock_response.content = [mock_tool_block]
+        mock_client.messages.create.return_value = mock_response
+
+        posts = [_make_post(0, "Normal post A"), _make_post(1, "Normal post B")]
+        results = engine.classify_posts(posts)
+
+        assert len(results) == 2
+        mock_client.messages.create.assert_called_once()
 
 
 class TestClassifyBatch:
@@ -365,12 +372,11 @@ class TestClassifyBatch:
 
         api_response_content = BatchClassificationResult(
             classifications=[
-                PostClassification(post_index=0, category="Must Read", confidence=0.9, reasoning="Relevant"),
-                PostClassification(post_index=1, category="Noise", confidence=0.8, reasoning="Bait"),
+                PostClassification(post_index=0, category="Read", confidence=0.9, reasoning="Relevant"),
+                PostClassification(post_index=1, category="Skip", confidence=0.8, reasoning="Bait"),
             ]
         )
 
-        # Mock the tool use response from Claude API
         mock_tool_block = MagicMock()
         mock_tool_block.type = "tool_use"
         mock_tool_block.input = json.loads(api_response_content.model_dump_json())
@@ -385,8 +391,8 @@ class TestClassifyBatch:
         results = engine.classify_batch(posts)
 
         assert len(results) == 2
-        assert results[0].category == "Must Read"
-        assert results[1].category == "Noise"
+        assert results[0].category == "Read"
+        assert results[1].category == "Skip"
         mock_client.messages.create.assert_called_once()
 
     def test_classify_batch_uses_config_model(self):
@@ -402,7 +408,7 @@ class TestClassifyBatch:
         mock_tool_block.type = "tool_use"
         mock_tool_block.input = {
             "classifications": [
-                {"post_index": 0, "category": "Noise", "confidence": 0.5, "reasoning": "r"},
+                {"post_index": 0, "category": "Skip", "confidence": 0.5, "reasoning": "r"},
             ]
         }
         mock_response = MagicMock()
@@ -420,7 +426,9 @@ class TestClassifyPosts:
     def test_splits_into_batches(self):
         from noise_cancel.classifier.engine import ClassificationEngine
 
-        config = _make_config(batch_size=2)
+        config = _make_config(
+            batch_size=2, whitelist={"keywords": [], "authors": []}, blacklist={"keywords": [], "authors": []}
+        )
         engine = ClassificationEngine(config)
 
         mock_client = MagicMock()
@@ -428,7 +436,7 @@ class TestClassifyPosts:
 
         def make_response(posts):
             classifications = [
-                {"post_index": i, "category": "Noise", "confidence": 0.5, "reasoning": "r"} for i in range(len(posts))
+                {"post_index": i, "category": "Skip", "confidence": 0.5, "reasoning": "r"} for i in range(len(posts))
             ]
             mock_tool_block = MagicMock()
             mock_tool_block.type = "tool_use"

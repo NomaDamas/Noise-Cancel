@@ -5,7 +5,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from noise_cancel.config import AppConfig, load_config
+from noise_cancel.config import AppConfig, default_config_path, generate_default_config, load_config
 from noise_cancel.database import apply_migrations, get_connection
 
 app = typer.Typer(name="noise-cancel", help="AI-powered LinkedIn feed noise filter.")
@@ -26,6 +26,21 @@ def _get_db(config: AppConfig):
 
 
 @app.command()
+def init(
+    config_path: str | None = typer.Option(None, "--config", help="Path to write config YAML"),
+) -> None:
+    """Generate default config file at ~/.config/noise-cancel/config.yaml."""
+    path = Path(config_path) if config_path else default_config_path()
+    if path.exists():
+        console.print(f"[yellow]Config already exists:[/yellow] {path}")
+        console.print("Edit it directly or delete it first to regenerate.")
+        raise typer.Exit(1)
+    generated = generate_default_config(path)
+    console.print(f"[green]Config created:[/green] {generated}")
+    console.print("Edit this file to customize categories, rules, and delivery settings.")
+
+
+@app.command()
 def config(
     config_path: str | None = typer.Option(None, "--config", help="Path to config YAML"),
 ) -> None:
@@ -35,9 +50,49 @@ def config(
 
 
 @app.command()
-def login() -> None:
+def login(
+    config_path: str | None = typer.Option(None, "--config", help="Path to config YAML"),
+) -> None:
     """Open browser for manual LinkedIn login and save session cookies."""
-    console.print("[yellow]Login command - not yet implemented[/yellow]")
+    import asyncio
+
+    cfg = _get_config(config_path)
+    data_dir = Path(cfg.general["data_dir"])
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    console.print("[cyan]Opening browser for LinkedIn login...[/cyan]")
+    console.print("[cyan]Please log in manually. Waiting up to 5 minutes...[/cyan]")
+
+    from noise_cancel.scraper.linkedin import LinkedInScraper
+
+    scraper = LinkedInScraper(cfg)
+    try:
+        asyncio.run(scraper.login(headed=True))
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Login cancelled.[/yellow]")
+        raise typer.Exit(1) from None
+
+    storage_state = scraper.storage_state
+    if storage_state is None:
+        console.print("[red]Login failed — no session captured.[/red]")
+        raise typer.Exit(1)
+
+    from noise_cancel.scraper.auth import generate_key, save_session
+
+    key_path = data_dir / "session.key"
+    session_path = data_dir / "session.enc"
+
+    if key_path.exists():
+        key = key_path.read_text().strip()
+    else:
+        key = generate_key()
+        key_path.write_text(key)
+        key_path.chmod(0o600)
+
+    save_session(storage_state, key, str(session_path))
+    session_path.chmod(0o600)
+
+    console.print(f"[green]Login successful! Session saved to {session_path}[/green]")
 
 
 @app.command()

@@ -54,7 +54,7 @@ def _make_post(
 def _make_classification(
     cls_id: str = "cls-1",
     post_id: str = "post-1",
-    category: str = "Noise",
+    category: str = "Skip",
     confidence: float = 0.9,
     rules: list[str] | None = None,
 ) -> Classification:
@@ -151,12 +151,12 @@ class TestClassifications:
         insert_run_log(db_connection, _make_run_log())
         insert_post(db_connection, _make_post("p1"))
         insert_post(db_connection, _make_post("p2"))
-        insert_classification(db_connection, _make_classification("c1", "p1", "Noise"))
-        insert_classification(db_connection, _make_classification("c2", "p2", "Must Read"))
+        insert_classification(db_connection, _make_classification("c1", "p1", "Skip"))
+        insert_classification(db_connection, _make_classification("c2", "p2", "Read"))
 
-        noise = get_classifications(db_connection, category="Noise")
-        assert len(noise) == 1
-        assert noise[0]["category"] == "Noise"
+        skip = get_classifications(db_connection, category="Skip")
+        assert len(skip) == 1
+        assert skip[0]["category"] == "Skip"
 
     def test_get_unclassified_posts(self, db_connection: sqlite3.Connection) -> None:
         insert_run_log(db_connection, _make_run_log())
@@ -255,22 +255,22 @@ class TestExport:
             rows = list(reader)
         assert len(rows) == 1
         assert rows[0]["post_id"] == "post-1"
-        assert rows[0]["category"] == "Noise"
+        assert rows[0]["category"] == "Skip"
 
     def test_export_csv_filtered(self, db_connection: sqlite3.Connection, tmp_path: Path) -> None:
         insert_run_log(db_connection, _make_run_log())
         insert_post(db_connection, _make_post("p1"))
         insert_post(db_connection, _make_post("p2"))
-        insert_classification(db_connection, _make_classification("c1", "p1", "Noise"))
-        insert_classification(db_connection, _make_classification("c2", "p2", "Must Read"))
+        insert_classification(db_connection, _make_classification("c1", "p1", "Skip"))
+        insert_classification(db_connection, _make_classification("c2", "p2", "Read"))
 
         out = str(tmp_path / "filtered.csv")
-        export_csv(db_connection, out, category="Must Read")
+        export_csv(db_connection, out, category="Read")
 
         with open(out, newline="") as f:
             rows = list(csv.DictReader(f))
         assert len(rows) == 1
-        assert rows[0]["category"] == "Must Read"
+        assert rows[0]["category"] == "Read"
 
     def test_export_json(self, db_connection: sqlite3.Connection, tmp_path: Path) -> None:
         _seed_basic(db_connection)
@@ -286,16 +286,16 @@ class TestExport:
         insert_run_log(db_connection, _make_run_log())
         insert_post(db_connection, _make_post("p1"))
         insert_post(db_connection, _make_post("p2"))
-        insert_classification(db_connection, _make_classification("c1", "p1", "Noise"))
-        insert_classification(db_connection, _make_classification("c2", "p2", "Must Read"))
+        insert_classification(db_connection, _make_classification("c1", "p1", "Skip"))
+        insert_classification(db_connection, _make_classification("c2", "p2", "Read"))
 
         out = str(tmp_path / "filtered.json")
-        export_json(db_connection, out, category="Noise")
+        export_json(db_connection, out, category="Skip")
 
         with open(out) as f:
             data = json.load(f)
         assert len(data) == 1
-        assert data[0]["category"] == "Noise"
+        assert data[0]["category"] == "Skip"
 
 
 # ---------------------------------------------------------------------------
@@ -309,18 +309,18 @@ class TestMetrics:
         insert_post(db_connection, _make_post("p1"))
         insert_post(db_connection, _make_post("p2"))
         insert_post(db_connection, _make_post("p3"))
-        insert_classification(db_connection, _make_classification("c1", "p1", "Noise"))
-        insert_classification(db_connection, _make_classification("c2", "p2", "Noise"))
-        insert_classification(db_connection, _make_classification("c3", "p3", "Must Read"))
+        insert_classification(db_connection, _make_classification("c1", "p1", "Skip"))
+        insert_classification(db_connection, _make_classification("c2", "p2", "Skip"))
+        insert_classification(db_connection, _make_classification("c3", "p3", "Read"))
 
         stats = get_classification_stats(db_connection)
-        assert stats["Noise"] == 2
-        assert stats["Must Read"] == 1
+        assert stats["Skip"] == 2
+        assert stats["Read"] == 1
 
     def test_accuracy_stats(self, db_connection: sqlite3.Connection) -> None:
         insert_run_log(db_connection, _make_run_log())
         insert_post(db_connection, _make_post("p1"))
-        insert_classification(db_connection, _make_classification("c1", "p1", "Noise"))
+        insert_classification(db_connection, _make_classification("c1", "p1", "Skip"))
         insert_feedback(db_connection, _make_feedback("fb-1", "p1", "c1", "agree"))
         insert_feedback(db_connection, _make_feedback("fb-2", "p1", "c1", "disagree"))
 

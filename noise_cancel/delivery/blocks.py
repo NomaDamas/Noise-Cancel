@@ -4,10 +4,8 @@ from noise_cancel.models import Classification, Post
 
 # Category -> emoji mapping (Slack emoji shortcodes)
 _CATEGORY_EMOJIS: dict[str, str] = {
-    "Must Read": ":fire:",
-    "Interesting": ":eyes:",
-    "Noise": ":mute:",
-    "Spam": ":no_entry:",
+    "Read": ":fire:",
+    "Skip": ":mute:",
 }
 
 

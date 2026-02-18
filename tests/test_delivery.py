@@ -20,34 +20,32 @@ from noise_cancel.models import Classification, Post
 # ---------------------------------------------------------------------------
 
 
-def _make_post(**overrides) -> Post:
-    defaults = {
-        "id": "post-1",
-        "author_name": "Jane Doe",
-        "author_url": "https://linkedin.com/in/janedoe",
-        "post_url": "https://linkedin.com/posts/janedoe-123",
-        "post_text": "This is an insightful post about machine learning and AI trends in 2025.",
-    }
-    defaults.update(overrides)
-    return Post(**defaults)
+def _make_post(
+    post_id: str = "post-1",
+    author_name: str = "Jane Doe",
+    author_url: str | None = "https://linkedin.com/in/janedoe",
+    post_url: str | None = "https://linkedin.com/posts/janedoe-123",
+    post_text: str = "This is an insightful post about machine learning and AI trends in 2025.",
+) -> Post:
+    return Post(id=post_id, author_name=author_name, author_url=author_url, post_url=post_url, post_text=post_text)
 
 
-def _make_classification(**overrides) -> Classification:
-    defaults = {
-        "id": "cls-1",
-        "post_id": "post-1",
-        "category": "Must Read",
-        "confidence": 0.92,
-        "reasoning": "Highly relevant ML content.",
-        "model_used": "claude-haiku-4-5-20251001",
-    }
-    defaults.update(overrides)
-    return Classification(**defaults)
+def _make_classification(
+    cls_id: str = "cls-1",
+    post_id: str = "post-1",
+    category: str = "Read",
+    confidence: float = 0.92,
+    reasoning: str = "Highly relevant ML content.",
+    model_used: str = "claude-sonnet-4-6",
+) -> Classification:
+    return Classification(
+        id=cls_id, post_id=post_id, category=category, confidence=confidence, reasoning=reasoning, model_used=model_used
+    )
 
 
 def _slack_config(**overrides) -> dict:
     defaults = {
-        "include_categories": ["Must Read", "Interesting"],
+        "include_categories": ["Read"],
         "include_reasoning": True,
         "max_text_preview": 300,
         "enable_feedback_buttons": True,
@@ -81,12 +79,12 @@ class TestBuildPostBlocks:
 
     def test_header_contains_category(self):
         post = _make_post()
-        cls = _make_classification(category="Must Read")
+        cls = _make_classification(category="Read")
         config = _slack_config()
         blocks = build_post_blocks(post, cls, config)
 
         header = next(b for b in blocks if b["type"] == "header")
-        assert "Must Read" in header["text"]["text"]
+        assert "Read" in header["text"]["text"]
 
     def test_author_linked_when_url_exists(self):
         post = _make_post(author_url="https://linkedin.com/in/janedoe")
@@ -170,7 +168,7 @@ class TestBuildPostBlocks:
         assert "92" in context_text  # 0.92 -> 92%
 
     def test_action_buttons_present(self):
-        post = _make_post(id="post-42")
+        post = _make_post(post_id="post-42")
         cls = _make_classification()
         config = _slack_config(enable_feedback_buttons=True)
         blocks = build_post_blocks(post, cls, config)
@@ -262,16 +260,16 @@ class TestSendToSlack:
 
 class TestDeliverPosts:
     def test_delivers_matching_categories(self):
-        post_must = _make_post(id="p1")
-        cls_must = _make_classification(post_id="p1", category="Must Read")
+        post_must = _make_post(post_id="p1")
+        cls_must = _make_classification(post_id="p1", category="Read")
 
-        post_noise = _make_post(id="p2")
-        cls_noise = _make_classification(post_id="p2", category="Noise")
+        post_noise = _make_post(post_id="p2")
+        cls_noise = _make_classification(post_id="p2", category="Skip")
 
         config = AppConfig(
             delivery={
                 "method": "slack",
-                "slack": _slack_config(include_categories=["Must Read"]),
+                "slack": _slack_config(include_categories=["Read"]),
             }
         )
 
@@ -308,12 +306,12 @@ class TestDeliverPosts:
 
     def test_counts_successful_deliveries(self):
         posts_cls = [
-            (_make_post(id=f"p{i}"), _make_classification(post_id=f"p{i}", category="Must Read")) for i in range(3)
+            (_make_post(post_id=f"p{i}"), _make_classification(post_id=f"p{i}", category="Read")) for i in range(3)
         ]
         config = AppConfig(
             delivery={
                 "method": "slack",
-                "slack": _slack_config(include_categories=["Must Read"]),
+                "slack": _slack_config(include_categories=["Read"]),
             }
         )
 
@@ -378,7 +376,7 @@ class TestShouldAutoGenerateRule:
         )
         db_connection.execute(
             "INSERT INTO classifications (id, post_id, category, confidence, reasoning, model_used) VALUES (?, ?, ?, ?, ?, ?)",
-            ("cls-1", "post-1", "Noise", 0.9, "reason", "test-model"),
+            ("cls-1", "post-1", "Skip", 0.9, "reason", "test-model"),
         )
         # Insert 2 mute_similar feedbacks (below default threshold of 3)
         for i in range(2):
@@ -397,7 +395,7 @@ class TestShouldAutoGenerateRule:
         )
         db_connection.execute(
             "INSERT INTO classifications (id, post_id, category, confidence, reasoning, model_used) VALUES (?, ?, ?, ?, ?, ?)",
-            ("cls-2", "post-2", "Noise", 0.9, "reason", "test-model"),
+            ("cls-2", "post-2", "Skip", 0.9, "reason", "test-model"),
         )
         for i in range(3):
             db_connection.execute(
@@ -415,7 +413,7 @@ class TestShouldAutoGenerateRule:
         )
         db_connection.execute(
             "INSERT INTO classifications (id, post_id, category, confidence, reasoning, model_used) VALUES (?, ?, ?, ?, ?, ?)",
-            ("cls-3", "post-3", "Noise", 0.9, "reason", "test-model"),
+            ("cls-3", "post-3", "Skip", 0.9, "reason", "test-model"),
         )
         db_connection.execute(
             "INSERT INTO user_feedback (id, post_id, classification_id, feedback_type) VALUES (?, ?, ?, ?)",
@@ -432,7 +430,7 @@ class TestShouldAutoGenerateRule:
         )
         db_connection.execute(
             "INSERT INTO classifications (id, post_id, category, confidence, reasoning, model_used) VALUES (?, ?, ?, ?, ?, ?)",
-            ("cls-4", "post-4", "Noise", 0.9, "reason", "test-model"),
+            ("cls-4", "post-4", "Skip", 0.9, "reason", "test-model"),
         )
         # Insert mixed feedback types
         db_connection.execute(

@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import sqlite3
+from collections.abc import Generator
 from pathlib import Path
 
 import pytest
@@ -18,16 +21,17 @@ def app_config(tmp_data_dir: Path) -> AppConfig:
         general={"data_dir": str(tmp_data_dir), "max_posts_per_run": 50},
         scraper={"headless": True, "scroll_count": 5},
         classifier={
-            "model": "claude-haiku-4-5-20251001",
+            "model": "claude-sonnet-4-6",
             "batch_size": 10,
             "temperature": 0.0,
             "categories": [],
-            "rules": [],
+            "whitelist": {"keywords": [], "authors": []},
+            "blacklist": {"keywords": [], "authors": []},
         },
         delivery={
             "method": "slack",
             "slack": {
-                "include_categories": ["Must Read"],
+                "include_categories": ["Read"],
                 "include_reasoning": True,
                 "max_text_preview": 300,
                 "enable_feedback_buttons": True,
@@ -37,7 +41,7 @@ def app_config(tmp_data_dir: Path) -> AppConfig:
 
 
 @pytest.fixture
-def db_connection(tmp_data_dir: Path) -> sqlite3.Connection:
+def db_connection(tmp_data_dir: Path) -> Generator[sqlite3.Connection]:
     tmp_data_dir.mkdir(parents=True, exist_ok=True)
     db_path = tmp_data_dir / "noise_cancel.db"
     conn = get_connection(str(db_path))

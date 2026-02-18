@@ -346,14 +346,90 @@ class TestParsePostElement:
         assert post.post_timestamp == "2025-03-01T12:00:00Z"
 
 
-class TestLinkedInScraperStubs:
-    @pytest.mark.anyio
-    async def test_login_stub(self, app_config):
+def _mock_playwright_chain(storage_state=None):
+    """Build a mock Playwright async API chain for testing."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_storage = storage_state if storage_state is not None else {"cookies": []}
+
+    mock_page = AsyncMock()
+    mock_context = AsyncMock()
+    mock_context.storage_state = AsyncMock(return_value=mock_storage)
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+
+    mock_browser = AsyncMock()
+    mock_browser.new_context = AsyncMock(return_value=mock_context)
+
+    mock_pw = AsyncMock()
+    mock_pw.chromium.launch = AsyncMock(return_value=mock_browser)
+
+    mock_cm = MagicMock()
+    mock_cm.start = AsyncMock(return_value=mock_pw)
+
+    mock_module = MagicMock()
+    mock_module.async_playwright.return_value = mock_cm
+
+    return mock_module, mock_pw, mock_browser, mock_context, mock_page
+
+
+class TestLinkedInScraperLogin:
+    def test_storage_state_initially_none(self, app_config):
         from noise_cancel.scraper.linkedin import LinkedInScraper
 
         scraper = LinkedInScraper(app_config)
-        await scraper.login(headed=False)
-        assert scraper._headed is False
+        assert scraper.storage_state is None
+
+    @pytest.mark.anyio
+    async def test_login_stores_storage_state(self, app_config):
+        from unittest.mock import patch
+
+        from noise_cancel.scraper.linkedin import LinkedInScraper
+
+        scraper = LinkedInScraper(app_config)
+        storage = {"cookies": [{"name": "li_at", "value": "abc123"}]}
+        mock_module, mock_pw, mock_browser, _, mock_page = _mock_playwright_chain(storage)
+
+        with patch("noise_cancel.scraper.linkedin.import_module", return_value=mock_module):
+            await scraper.login(headed=True)
+
+        assert scraper.storage_state == storage
+        mock_pw.chromium.launch.assert_called_once_with(headless=False)
+        mock_page.goto.assert_called_once()
+        mock_page.wait_for_url.assert_called_once()
+        mock_browser.close.assert_called_once()
+        mock_pw.stop.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_login_headed_false_passes_headless_true(self, app_config):
+        from unittest.mock import patch
+
+        from noise_cancel.scraper.linkedin import LinkedInScraper
+
+        scraper = LinkedInScraper(app_config)
+        mock_module, mock_pw, *_ = _mock_playwright_chain()
+
+        with patch("noise_cancel.scraper.linkedin.import_module", return_value=mock_module):
+            await scraper.login(headed=False)
+
+        mock_pw.chromium.launch.assert_called_once_with(headless=True)
+
+    @pytest.mark.anyio
+    async def test_login_stops_playwright_on_error(self, app_config):
+        from unittest.mock import patch
+
+        from noise_cancel.scraper.linkedin import LinkedInScraper
+
+        scraper = LinkedInScraper(app_config)
+        mock_module, mock_pw, _, _, mock_page = _mock_playwright_chain()
+        mock_page.goto.side_effect = RuntimeError("Connection failed")
+
+        with (
+            patch("noise_cancel.scraper.linkedin.import_module", return_value=mock_module),
+            pytest.raises(RuntimeError, match="Connection failed"),
+        ):
+            await scraper.login()
+
+        mock_pw.stop.assert_called_once()
 
     @pytest.mark.anyio
     async def test_scrape_feed_stub(self, app_config):
@@ -368,5 +444,4 @@ class TestLinkedInScraperStubs:
         from noise_cancel.scraper.linkedin import LinkedInScraper
 
         scraper = LinkedInScraper(app_config)
-        # Should not raise
         await scraper.close()

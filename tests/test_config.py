@@ -2,13 +2,13 @@ from pathlib import Path
 
 import yaml
 
-from noise_cancel.config import AppConfig, load_config
+from noise_cancel.config import AppConfig, generate_default_config, load_config
 
 
 def test_default_config_creation():
     config = AppConfig()
     assert config.general["max_posts_per_run"] == 50
-    assert config.classifier["model"] == "claude-haiku-4-5-20251001"
+    assert config.classifier["model"] == "claude-sonnet-4-6"
     assert config.delivery["method"] == "slack"
 
 
@@ -33,3 +33,23 @@ def test_load_config_missing_file_uses_defaults():
 def test_config_data_dir_default():
     config = AppConfig()
     assert "noise-cancel" in config.general["data_dir"]
+
+
+def test_generate_default_config(tmp_path: Path):
+    path = tmp_path / "sub" / "config.yaml"
+    result = generate_default_config(path)
+    assert result == path
+    assert path.exists()
+    loaded = yaml.safe_load(path.read_text())
+    assert loaded["classifier"]["model"] == "claude-sonnet-4-6"
+    assert len(loaded["classifier"]["categories"]) == 2
+    assert loaded["classifier"]["categories"][0]["name"] == "Read"
+    assert loaded["classifier"]["categories"][1]["name"] == "Skip"
+
+
+def test_generate_default_config_is_loadable(tmp_path: Path):
+    path = tmp_path / "config.yaml"
+    generate_default_config(path)
+    config = load_config(str(path))
+    assert config.classifier["model"] == "claude-sonnet-4-6"
+    assert config.delivery["slack"]["include_categories"] == ["Read"]

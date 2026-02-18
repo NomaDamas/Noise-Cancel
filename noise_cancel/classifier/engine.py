@@ -3,7 +3,7 @@ from __future__ import annotations
 from importlib import import_module
 from typing import TYPE_CHECKING
 
-from noise_cancel.classifier.prompts import build_system_prompt, build_user_prompt, check_rule_match
+from noise_cancel.classifier.prompts import build_system_prompt, build_user_prompt, check_blacklist, check_whitelist
 from noise_cancel.classifier.schemas import BatchClassificationResult, PostClassification
 
 if TYPE_CHECKING:
@@ -24,12 +24,14 @@ class ClassificationEngine:
         return self._client
 
     def classify_batch(self, posts: list[Post]) -> list[PostClassification]:
+        """Classify a batch of posts via Claude API. No whitelist/blacklist filtering here."""
         client = self._get_client()
         cfg = self._config.classifier
         categories = cfg.get("categories", [])
-        rules = cfg.get("rules", [])
+        whitelist = cfg.get("whitelist", {})
+        blacklist = cfg.get("blacklist", {})
 
-        system_prompt = build_system_prompt(categories, rules)
+        system_prompt = build_system_prompt(categories, whitelist, blacklist)
         user_prompt = build_user_prompt(posts)
 
         tool_schema = BatchClassificationResult.model_json_schema()
@@ -53,42 +55,59 @@ class ClassificationEngine:
         for block in response.content:
             if block.type == "tool_use":
                 result = BatchClassificationResult(**block.input)
-                classifications = result.classifications
-                return [self.apply_rule_overrides(posts[c.post_index], c, rules) for c in classifications]
+                return result.classifications
 
         return []
 
     def classify_posts(self, posts: list[Post]) -> list[PostClassification]:
+        """Classify posts. Whitelist/blacklist are resolved first; only unmatched posts hit the API."""
         if not posts:
             return []
 
-        batch_size = self._config.classifier.get("batch_size", 10)
-        all_results: list[PostClassification] = []
+        cfg = self._config.classifier
+        whitelist = cfg.get("whitelist", {})
+        blacklist = cfg.get("blacklist", {})
 
-        for start in range(0, len(posts), batch_size):
-            batch = posts[start : start + batch_size]
-            results = self.classify_batch(batch)
-            all_results.extend(results)
+        results: list[PostClassification | None] = [None] * len(posts)
+        needs_api: list[tuple[int, Post]] = []
 
-        return all_results
+        for i, post in enumerate(posts):
+            if check_whitelist(post, whitelist):
+                results[i] = PostClassification(
+                    post_index=i,
+                    category="Read",
+                    confidence=1.0,
+                    reasoning="Matched whitelist",
+                    applied_rules=["whitelist"],
+                )
+            elif check_blacklist(post, blacklist):
+                results[i] = PostClassification(
+                    post_index=i,
+                    category="Skip",
+                    confidence=1.0,
+                    reasoning="Matched blacklist",
+                    applied_rules=["blacklist"],
+                )
+            else:
+                needs_api.append((i, post))
 
-    def apply_rule_overrides(
-        self, post: Post, classification: PostClassification, rules: list[dict]
-    ) -> PostClassification:
-        matching_rules = []
-        for rule in rules:
-            if check_rule_match(post, rule):
-                matching_rules.append(rule)
+        # Only call API for posts not caught by whitelist/blacklist
+        if needs_api:
+            batch_size = cfg.get("batch_size", 10)
+            api_posts = [post for _, post in needs_api]
 
-        if not matching_rules:
-            return classification
+            api_results: list[PostClassification] = []
+            for start in range(0, len(api_posts), batch_size):
+                batch = api_posts[start : start + batch_size]
+                api_results.extend(self.classify_batch(batch))
 
-        best_rule = max(matching_rules, key=lambda r: r.get("priority", 0))
+            # Map API results back to original indices
+            for (original_idx, _), api_cls in zip(needs_api, api_results, strict=True):
+                results[original_idx] = PostClassification(
+                    post_index=original_idx,
+                    category=api_cls.category,
+                    confidence=api_cls.confidence,
+                    reasoning=api_cls.reasoning,
+                )
 
-        return PostClassification(
-            post_index=classification.post_index,
-            category=best_rule["target_category"],
-            confidence=classification.confidence,
-            reasoning=classification.reasoning,
-            applied_rules=[r["name"] for r in matching_rules],
-        )
+        return [r for r in results if r is not None]
