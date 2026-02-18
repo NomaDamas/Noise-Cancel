@@ -1,0 +1,345 @@
+from __future__ import annotations
+
+import csv
+import json
+import sqlite3
+from pathlib import Path
+
+from noise_cancel.logger.export import export_csv, export_json
+from noise_cancel.logger.metrics import (
+    get_accuracy_stats,
+    get_classification_stats,
+    get_run_history,
+)
+from noise_cancel.logger.repository import (
+    get_classifications,
+    get_feedback_counts,
+    get_feedback_for_post,
+    get_posts,
+    get_unclassified_posts,
+    get_undelivered_classifications,
+    insert_classification,
+    insert_feedback,
+    insert_post,
+    insert_run_log,
+    mark_delivered,
+    update_run_log,
+)
+from noise_cancel.models import Classification, Post, RunLog, UserFeedback
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_run_log(run_id: str = "run-1", run_type: str = "full") -> RunLog:
+    return RunLog(id=run_id, run_type=run_type, started_at="2025-01-01T00:00:00Z")
+
+
+def _make_post(
+    post_id: str = "post-1",
+    author: str = "Alice",
+    text: str = "Hello world",
+    run_id: str | None = "run-1",
+) -> Post:
+    return Post(
+        id=post_id,
+        author_name=author,
+        post_text=text,
+        run_id=run_id,
+        scraped_at="2025-01-01T00:00:00Z",
+    )
+
+
+def _make_classification(
+    cls_id: str = "cls-1",
+    post_id: str = "post-1",
+    category: str = "Noise",
+    confidence: float = 0.9,
+    rules: list[str] | None = None,
+) -> Classification:
+    return Classification(
+        id=cls_id,
+        post_id=post_id,
+        category=category,
+        confidence=confidence,
+        reasoning="test reasoning",
+        applied_rules=rules or [],
+        model_used="test-model",
+        classified_at="2025-01-01T00:00:00Z",
+    )
+
+
+def _make_feedback(
+    fb_id: str = "fb-1",
+    post_id: str = "post-1",
+    cls_id: str = "cls-1",
+    feedback_type: str = "agree",
+) -> UserFeedback:
+    return UserFeedback(
+        id=fb_id,
+        post_id=post_id,
+        classification_id=cls_id,
+        feedback_type=feedback_type,
+        created_at="2025-01-01T00:00:00Z",
+    )
+
+
+def _seed_basic(conn: sqlite3.Connection) -> None:
+    """Insert a run_log, post, and classification for reuse."""
+    insert_run_log(conn, _make_run_log())
+    insert_post(conn, _make_post())
+    insert_classification(conn, _make_classification())
+
+
+# ---------------------------------------------------------------------------
+# Repository -insert / get posts
+# ---------------------------------------------------------------------------
+
+
+class TestInsertAndGetPosts:
+    def test_insert_and_retrieve_post(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        post = _make_post()
+        insert_post(db_connection, post)
+
+        rows = get_posts(db_connection)
+        assert len(rows) == 1
+        assert rows[0]["id"] == "post-1"
+        assert rows[0]["author_name"] == "Alice"
+
+    def test_get_posts_with_limit_and_offset(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        for i in range(5):
+            insert_post(db_connection, _make_post(post_id=f"post-{i}", run_id="run-1"))
+
+        rows = get_posts(db_connection, limit=2, offset=0)
+        assert len(rows) == 2
+
+        rows_offset = get_posts(db_connection, limit=10, offset=3)
+        assert len(rows_offset) == 2
+
+    def test_get_posts_filter_by_run_id(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, _make_run_log("run-1"))
+        insert_run_log(db_connection, _make_run_log("run-2"))
+        insert_post(db_connection, _make_post(post_id="p1", run_id="run-1"))
+        insert_post(db_connection, _make_post(post_id="p2", run_id="run-2"))
+
+        rows = get_posts(db_connection, run_id="run-1")
+        assert len(rows) == 1
+        assert rows[0]["id"] == "p1"
+
+
+# ---------------------------------------------------------------------------
+# Repository -classifications
+# ---------------------------------------------------------------------------
+
+
+class TestClassifications:
+    def test_insert_classification_with_applied_rules(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post())
+        cls = _make_classification(rules=["rule-a", "rule-b"])
+        insert_classification(db_connection, cls)
+
+        rows = get_classifications(db_connection)
+        assert len(rows) == 1
+        rules = json.loads(rows[0]["applied_rules"])
+        assert rules == ["rule-a", "rule-b"]
+
+    def test_get_classifications_filter_by_category(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post("p1"))
+        insert_post(db_connection, _make_post("p2"))
+        insert_classification(db_connection, _make_classification("c1", "p1", "Noise"))
+        insert_classification(db_connection, _make_classification("c2", "p2", "Must Read"))
+
+        noise = get_classifications(db_connection, category="Noise")
+        assert len(noise) == 1
+        assert noise[0]["category"] == "Noise"
+
+    def test_get_unclassified_posts(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post("p1"))
+        insert_post(db_connection, _make_post("p2"))
+        insert_classification(db_connection, _make_classification("c1", "p1"))
+
+        unclassified = get_unclassified_posts(db_connection)
+        assert len(unclassified) == 1
+        assert unclassified[0]["id"] == "p2"
+
+    def test_get_undelivered_classifications(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post("p1"))
+        insert_post(db_connection, _make_post("p2"))
+        insert_classification(db_connection, _make_classification("c1", "p1"))
+        insert_classification(db_connection, _make_classification("c2", "p2"))
+        mark_delivered(db_connection, "c1")
+
+        undelivered = get_undelivered_classifications(db_connection)
+        assert len(undelivered) == 1
+        assert undelivered[0]["id"] == "c2"
+
+    def test_mark_delivered_sets_timestamp(self, db_connection: sqlite3.Connection) -> None:
+        _seed_basic(db_connection)
+        mark_delivered(db_connection, "cls-1")
+
+        rows = get_classifications(db_connection)
+        assert rows[0]["delivered"] == 1
+        assert rows[0]["delivered_at"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Repository -feedback
+# ---------------------------------------------------------------------------
+
+
+class TestFeedback:
+    def test_insert_and_get_feedback(self, db_connection: sqlite3.Connection) -> None:
+        _seed_basic(db_connection)
+        fb = _make_feedback()
+        insert_feedback(db_connection, fb)
+
+        rows = get_feedback_for_post(db_connection, "post-1")
+        assert len(rows) == 1
+        assert rows[0]["feedback_type"] == "agree"
+
+    def test_get_feedback_counts(self, db_connection: sqlite3.Connection) -> None:
+        _seed_basic(db_connection)
+        insert_feedback(db_connection, _make_feedback("fb-1", feedback_type="agree"))
+        insert_feedback(db_connection, _make_feedback("fb-2", feedback_type="agree"))
+        insert_feedback(db_connection, _make_feedback("fb-3", feedback_type="disagree"))
+
+        counts = get_feedback_counts(db_connection)
+        assert counts["agree"] == 2
+        assert counts["disagree"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Repository -run logs
+# ---------------------------------------------------------------------------
+
+
+class TestRunLogs:
+    def test_insert_and_update_run_log(self, db_connection: sqlite3.Connection) -> None:
+        rl = _make_run_log()
+        insert_run_log(db_connection, rl)
+
+        update_run_log(
+            db_connection,
+            "run-1",
+            status="completed",
+            posts_scraped=10,
+            finished_at="2025-01-01T01:00:00Z",
+        )
+
+        row = db_connection.execute("SELECT * FROM run_logs WHERE id = ?", ("run-1",)).fetchone()
+        assert row["status"] == "completed"
+        assert row["posts_scraped"] == 10
+        assert row["finished_at"] == "2025-01-01T01:00:00Z"
+
+
+# ---------------------------------------------------------------------------
+# Export
+# ---------------------------------------------------------------------------
+
+
+class TestExport:
+    def test_export_csv(self, db_connection: sqlite3.Connection, tmp_path: Path) -> None:
+        _seed_basic(db_connection)
+        out = str(tmp_path / "export.csv")
+        export_csv(db_connection, out)
+
+        with open(out, newline="") as f:
+            reader = csv.DictReader(f)
+            rows = list(reader)
+        assert len(rows) == 1
+        assert rows[0]["post_id"] == "post-1"
+        assert rows[0]["category"] == "Noise"
+
+    def test_export_csv_filtered(self, db_connection: sqlite3.Connection, tmp_path: Path) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post("p1"))
+        insert_post(db_connection, _make_post("p2"))
+        insert_classification(db_connection, _make_classification("c1", "p1", "Noise"))
+        insert_classification(db_connection, _make_classification("c2", "p2", "Must Read"))
+
+        out = str(tmp_path / "filtered.csv")
+        export_csv(db_connection, out, category="Must Read")
+
+        with open(out, newline="") as f:
+            rows = list(csv.DictReader(f))
+        assert len(rows) == 1
+        assert rows[0]["category"] == "Must Read"
+
+    def test_export_json(self, db_connection: sqlite3.Connection, tmp_path: Path) -> None:
+        _seed_basic(db_connection)
+        out = str(tmp_path / "export.json")
+        export_json(db_connection, out)
+
+        with open(out) as f:
+            data = json.load(f)
+        assert len(data) == 1
+        assert data[0]["post_id"] == "post-1"
+
+    def test_export_json_filtered(self, db_connection: sqlite3.Connection, tmp_path: Path) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post("p1"))
+        insert_post(db_connection, _make_post("p2"))
+        insert_classification(db_connection, _make_classification("c1", "p1", "Noise"))
+        insert_classification(db_connection, _make_classification("c2", "p2", "Must Read"))
+
+        out = str(tmp_path / "filtered.json")
+        export_json(db_connection, out, category="Noise")
+
+        with open(out) as f:
+            data = json.load(f)
+        assert len(data) == 1
+        assert data[0]["category"] == "Noise"
+
+
+# ---------------------------------------------------------------------------
+# Metrics
+# ---------------------------------------------------------------------------
+
+
+class TestMetrics:
+    def test_classification_stats(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post("p1"))
+        insert_post(db_connection, _make_post("p2"))
+        insert_post(db_connection, _make_post("p3"))
+        insert_classification(db_connection, _make_classification("c1", "p1", "Noise"))
+        insert_classification(db_connection, _make_classification("c2", "p2", "Noise"))
+        insert_classification(db_connection, _make_classification("c3", "p3", "Must Read"))
+
+        stats = get_classification_stats(db_connection)
+        assert stats["Noise"] == 2
+        assert stats["Must Read"] == 1
+
+    def test_accuracy_stats(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post("p1"))
+        insert_classification(db_connection, _make_classification("c1", "p1", "Noise"))
+        insert_feedback(db_connection, _make_feedback("fb-1", "p1", "c1", "agree"))
+        insert_feedback(db_connection, _make_feedback("fb-2", "p1", "c1", "disagree"))
+
+        stats = get_accuracy_stats(db_connection)
+        assert stats["total_feedback"] == 2
+        assert stats["agree"] == 1
+        assert stats["disagree"] == 1
+
+    def test_run_history(self, db_connection: sqlite3.Connection) -> None:
+        for i in range(3):
+            insert_run_log(db_connection, _make_run_log(f"run-{i}"))
+
+        history = get_run_history(db_connection, limit=2)
+        assert len(history) == 2
+
+    def test_classification_stats_empty(self, db_connection: sqlite3.Connection) -> None:
+        stats = get_classification_stats(db_connection)
+        assert stats == {}
+
+    def test_accuracy_stats_empty(self, db_connection: sqlite3.Connection) -> None:
+        stats = get_accuracy_stats(db_connection)
+        assert stats["total_feedback"] == 0
