@@ -95,6 +95,29 @@ noise-cancel login
 
 A browser opens for manual LinkedIn login. Session cookies are encrypted (Fernet) and saved locally.
 
+#### Running on a remote / headless server?
+
+`noise-cancel login` requires a GUI browser. If you're running on a server without a display, log in locally and transfer the session:
+
+**On your local machine (with a display):**
+
+```bash
+noise-cancel login                          # Opens browser, log in
+noise-cancel session-export -o session.json # Decrypt session to portable JSON
+scp session.json user@your-server:~/        # Transfer to server
+rm session.json                             # Delete local copy
+```
+
+**On the remote server:**
+
+```bash
+noise-cancel session-import ~/session.json  # Re-encrypt and save session
+rm ~/session.json                           # Delete the JSON file
+noise-cancel run                            # Good to go
+```
+
+> **Note**: The exported `session.json` contains your LinkedIn session cookies in plain text. Transfer it over a secure channel (SCP/SFTP) and delete it immediately after import. Sessions expire after `session_ttl_days` (default: 7 days) — repeat this process when scraping starts failing with a session-expired error.
+
 ### 5. Run
 
 ```bash
@@ -124,7 +147,8 @@ That's it. "Read" posts arrive in your Slack channel with author, preview, confi
 | `noise-cancel deliver` | Deliver classified posts to Slack |
 | `noise-cancel logs` | Show run history |
 | `noise-cancel stats` | Show classification statistics |
-| `noise-cancel feedback <post_id> <type>` | Submit feedback (useful / not_useful / mute_similar) |
+| `noise-cancel session-export` | Export session to a portable JSON file (for headless/remote servers) |
+| `noise-cancel session-import <file>` | Import session from a JSON file exported by `session-export` |
 
 **Common flags**: `--config PATH`, `--verbose`, `--dry-run`, `--limit N`
 
