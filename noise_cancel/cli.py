@@ -374,12 +374,15 @@ def stats(
 
 @app.command(name="cookie-import")
 def cookie_import(
-    li_at: str = typer.Option(..., "--li-at", help="Value of the li_at cookie from your browser"),
+    li_at: str = typer.Option(..., "--li-at", help="Value of the li_at cookie"),
+    jsessionid: str = typer.Option(..., "--jsessionid", help="Value of the JSESSIONID cookie (with quotes)"),
     config_path: str | None = typer.Option(None, "--config"),
 ) -> None:
     """Build a session directly from raw LinkedIn cookies (no login flow needed).
 
-    Get the li_at value from: Browser DevTools → Application → Cookies → linkedin.com
+    Get cookie values from: Browser DevTools → Application → Cookies → linkedin.com
+
+    Required cookies: li_at, JSESSIONID
     """
     import time
 
@@ -405,7 +408,17 @@ def cookie_import(
                 "httpOnly": True,
                 "secure": True,
                 "sameSite": "None",
-            }
+            },
+            {
+                "name": "JSESSIONID",
+                "value": jsessionid,
+                "domain": ".www.linkedin.com",
+                "path": "/",
+                "expires": expires,
+                "httpOnly": False,
+                "secure": True,
+                "sameSite": "None",
+            },
         ],
         "origins": [],
     }
@@ -420,4 +433,4 @@ def cookie_import(
     save_session(storage_state, key, str(session_path))
     session_path.chmod(0o600)
     console.print(f"[green]Session saved to {session_path}[/green]")
-    console.print("[cyan]Test it:[/cyan] noise-cancel scrape --verbose")
+    console.print("[cyan]Test it:[/cyan] noise-cancel scrape --debug")

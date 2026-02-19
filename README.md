@@ -97,23 +97,25 @@ A browser opens for manual LinkedIn login. Session cookies are encrypted (Fernet
 
 #### Running on a remote / headless server?
 
-`noise-cancel login` requires a GUI browser. On a server without a display, copy your `li_at` cookie directly from the browser.
+`noise-cancel login` requires a GUI browser. On a server without a display, copy cookies directly from your browser.
 
-**Step 1 — Get your `li_at` cookie (local browser)**
+**Step 1 — Get cookies from your browser**
 
-Open DevTools on any LinkedIn page:
-- Chrome/Edge: F12 → Application → Cookies → `https://www.linkedin.com` → find `li_at` → copy the Value
-- Firefox: F12 → Storage → Cookies → `https://www.linkedin.com` → find `li_at` → copy the Value
+Open DevTools on any LinkedIn page (F12 → Application → Cookies → `https://www.linkedin.com`) and copy the values of:
+- **`li_at`** — main auth token (long string starting with `AQEDAT...`)
+- **`JSESSIONID`** — session ID (string wrapped in double quotes like `"ajax:123..."`)
 
 **Step 2 — Import on the remote server**
 
 ```bash
-noise-cancel cookie-import --li-at "AQEDATxxxxxx..."
+noise-cancel cookie-import \
+  --li-at "AQEDATxxxxxx..." \
+  --jsessionid "ajax:1234567890123456789"
 ```
 
-That's it. The cookie is encrypted and saved locally — no file transfer needed.
+The cookies are encrypted and saved locally — no file transfer needed.
 
-> **Note**: The `li_at` cookie is your LinkedIn auth token. Keep it secret. It expires when you log out of LinkedIn or after ~1 year; if scraping starts failing, repeat this step.
+> **Note**: These cookies are your LinkedIn auth tokens. Keep them secret. If scraping starts failing with session errors, repeat this step with fresh cookie values.
 
 ### 5. Run
 
@@ -144,7 +146,7 @@ That's it. "Read" posts arrive in your Slack channel with author, preview, confi
 | `noise-cancel deliver` | Deliver classified posts to Slack |
 | `noise-cancel logs` | Show run history |
 | `noise-cancel stats` | Show classification statistics |
-| `noise-cancel cookie-import --li-at VALUE` | Build session directly from raw `li_at` cookie (for headless/remote servers) |
+| `noise-cancel cookie-import` | Build session from raw browser cookies — `--li-at` and `--jsessionid` required |
 
 **Common flags**: `--config PATH`, `--verbose`, `--dry-run`, `--limit N`
 
