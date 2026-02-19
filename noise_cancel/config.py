@@ -50,7 +50,6 @@ _DEFAULT_DELIVERY: dict[str, Any] = {
         "include_categories": ["Read"],
         "include_reasoning": True,
         "max_text_preview": 300,
-        "enable_feedback_buttons": True,
     },
 }
 
@@ -110,7 +109,6 @@ delivery:
       - Read
     include_reasoning: true
     max_text_preview: 300
-    enable_feedback_buttons: true
 """
 
 

@@ -4,7 +4,7 @@ import json
 import sqlite3
 from datetime import datetime, timezone
 
-from noise_cancel.models import Classification, Post, RunLog, UserFeedback
+from noise_cancel.models import Classification, Post, RunLog
 
 
 def insert_post(conn: sqlite3.Connection, post: Post) -> None:
@@ -49,24 +49,6 @@ def insert_classification(conn: sqlite3.Connection, classification: Classificati
             d["classified_at"],
             d["delivered"],
             d["delivered_at"],
-        ),
-    )
-    conn.commit()
-
-
-def insert_feedback(conn: sqlite3.Connection, feedback: UserFeedback) -> None:
-    d = feedback.to_dict()
-    conn.execute(
-        """INSERT INTO user_feedback
-           (id, post_id, classification_id, feedback_type, source, created_at)
-           VALUES (?, ?, ?, ?, ?, ?)""",
-        (
-            d["id"],
-            d["post_id"],
-            d["classification_id"],
-            d["feedback_type"],
-            d["source"],
-            d["created_at"],
         ),
     )
     conn.commit()
@@ -179,14 +161,6 @@ def get_classifications(
     return [dict(r) for r in rows]
 
 
-def get_feedback_for_post(conn: sqlite3.Connection, post_id: str) -> list[dict]:
-    rows = conn.execute(
-        "SELECT * FROM user_feedback WHERE post_id = ?",
-        (post_id,),
-    ).fetchall()
-    return [dict(r) for r in rows]
-
-
 def mark_delivered(conn: sqlite3.Connection, classification_id: str) -> None:
     now = datetime.now(tz=timezone.utc).isoformat()
     conn.execute(
@@ -194,8 +168,3 @@ def mark_delivered(conn: sqlite3.Connection, classification_id: str) -> None:
         (now, classification_id),
     )
     conn.commit()
-
-
-def get_feedback_counts(conn: sqlite3.Connection) -> dict[str, int]:
-    rows = conn.execute("SELECT feedback_type, COUNT(*) as cnt FROM user_feedback GROUP BY feedback_type").fetchall()
-    return {row["feedback_type"]: row["cnt"] for row in rows}

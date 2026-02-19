@@ -34,7 +34,6 @@ def app_config(tmp_data_dir: Path) -> AppConfig:
                 "include_categories": ["Read"],
                 "include_reasoning": True,
                 "max_text_preview": 300,
-                "enable_feedback_buttons": True,
             },
         },
     )

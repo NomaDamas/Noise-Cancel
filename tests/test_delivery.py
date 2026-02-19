@@ -7,11 +7,6 @@ import httpx
 
 from noise_cancel.config import AppConfig
 from noise_cancel.delivery.blocks import build_post_blocks
-from noise_cancel.delivery.feedback import (
-    generate_mute_rule,
-    parse_feedback_action,
-    should_auto_generate_rule,
-)
 from noise_cancel.delivery.slack import deliver_posts, send_to_slack
 from noise_cancel.models import Classification, Post
 
@@ -53,7 +48,6 @@ def _make_classification(
 def _slack_config(**overrides) -> dict:
     defaults = {
         "include_categories": ["Read"],
-        "enable_feedback_buttons": True,
     }
     defaults.update(overrides)
     return defaults
@@ -68,8 +62,7 @@ class TestBuildPostBlocks:
     def test_basic_block_structure(self):
         post = _make_post()
         cls = _make_classification()
-        config = _slack_config()
-        blocks = build_post_blocks(post, cls, config)
+        blocks = build_post_blocks(post, cls)
 
         assert isinstance(blocks, list)
         assert all(isinstance(b, dict) for b in blocks)
@@ -84,8 +77,7 @@ class TestBuildPostBlocks:
     def test_author_name_displayed_without_link(self):
         post = _make_post(author_url="https://linkedin.com/in/janedoe")
         cls = _make_classification()
-        config = _slack_config()
-        blocks = build_post_blocks(post, cls, config)
+        blocks = build_post_blocks(post, cls)
 
         sections = [b for b in blocks if b["type"] == "section"]
         author_section = sections[0]
@@ -96,8 +88,7 @@ class TestBuildPostBlocks:
     def test_author_plain_when_no_url(self):
         post = _make_post(author_url=None)
         cls = _make_classification()
-        config = _slack_config()
-        blocks = build_post_blocks(post, cls, config)
+        blocks = build_post_blocks(post, cls)
 
         sections = [b for b in blocks if b["type"] == "section"]
         author_section = sections[0]
@@ -108,8 +99,7 @@ class TestBuildPostBlocks:
     def test_summary_displayed(self):
         post = _make_post()
         cls = _make_classification(summary="This is a 3-line summary. It covers key points. Very informative.")
-        config = _slack_config()
-        blocks = build_post_blocks(post, cls, config)
+        blocks = build_post_blocks(post, cls)
 
         sections = [b for b in blocks if b["type"] == "section"]
         summary_section = sections[1]
@@ -118,8 +108,7 @@ class TestBuildPostBlocks:
     def test_falls_back_to_post_text_when_no_summary(self):
         post = _make_post(post_text="Original post text here")
         cls = _make_classification(summary="")
-        config = _slack_config()
-        blocks = build_post_blocks(post, cls, config)
+        blocks = build_post_blocks(post, cls)
 
         sections = [b for b in blocks if b["type"] == "section"]
         summary_section = sections[1]
@@ -129,48 +118,16 @@ class TestBuildPostBlocks:
         long_text = "A" * 500
         post = _make_post(post_text=long_text)
         cls = _make_classification(summary="")
-        config = _slack_config()
-        blocks = build_post_blocks(post, cls, config)
+        blocks = build_post_blocks(post, cls)
 
         sections = [b for b in blocks if b["type"] == "section"]
         summary_section = sections[1]
         assert len(summary_section["text"]["text"]) == 300
 
-    def test_action_buttons_present(self):
-        post = _make_post(post_id="post-42")
-        cls = _make_classification()
-        config = _slack_config(enable_feedback_buttons=True)
-        blocks = build_post_blocks(post, cls, config)
-
-        actions = [b for b in blocks if b["type"] == "actions"]
-        assert len(actions) == 1
-        buttons = actions[0]["elements"]
-        values = [btn["value"] for btn in buttons if btn["type"] == "button" and "value" in btn]
-        assert "useful|post-42" in values
-        assert "not_useful|post-42" in values
-        assert "mute_similar|post-42" in values
-
-    def test_action_buttons_excluded_when_disabled(self):
-        post = _make_post()
-        cls = _make_classification()
-        config = _slack_config(enable_feedback_buttons=False)
-        blocks = build_post_blocks(post, cls, config)
-
-        actions = [b for b in blocks if b["type"] == "actions"]
-        # No actions block, or no feedback buttons
-        if actions:
-            buttons = [
-                e
-                for e in actions[0]["elements"]
-                if e.get("value", "").startswith(("useful", "not_useful", "mute_similar"))
-            ]
-            assert len(buttons) == 0
-
     def test_linkedin_link_button_when_post_url_exists(self):
         post = _make_post(post_url="https://linkedin.com/posts/123")
         cls = _make_classification()
-        config = _slack_config()
-        blocks = build_post_blocks(post, cls, config)
+        blocks = build_post_blocks(post, cls)
 
         actions = [b for b in blocks if b["type"] == "actions"]
         assert len(actions) == 1
@@ -181,48 +138,10 @@ class TestBuildPostBlocks:
     def test_no_linkedin_link_when_no_post_url(self):
         post = _make_post(post_url=None)
         cls = _make_classification()
-        config = _slack_config()
-        blocks = build_post_blocks(post, cls, config)
+        blocks = build_post_blocks(post, cls)
 
         actions = [b for b in blocks if b["type"] == "actions"]
-        if actions:
-            link_buttons = [e for e in actions[0]["elements"] if e.get("url")]
-            assert len(link_buttons) == 0
-
-    def test_korean_button_labels(self):
-        post = _make_post(post_url="https://linkedin.com/posts/123")
-        cls = _make_classification()
-        config = _slack_config()
-        blocks = build_post_blocks(post, cls, config, language="korean")
-
-        actions = [b for b in blocks if b["type"] == "actions"]
-        button_texts = [e["text"]["text"] for e in actions[0]["elements"]]
-        assert any("유용해요" in t for t in button_texts)
-        assert any("별로예요" in t for t in button_texts)
-        assert any("비슷한 글 숨기기" in t for t in button_texts)
-        assert any("LinkedIn에서 보기" in t for t in button_texts)
-
-    def test_english_button_labels_by_default(self):
-        post = _make_post(post_url="https://linkedin.com/posts/123")
-        cls = _make_classification()
-        config = _slack_config()
-        blocks = build_post_blocks(post, cls, config)
-
-        actions = [b for b in blocks if b["type"] == "actions"]
-        button_texts = [e["text"]["text"] for e in actions[0]["elements"]]
-        assert any("Useful" in t for t in button_texts)
-        assert any("Not Useful" in t for t in button_texts)
-        assert any("View on LinkedIn" in t for t in button_texts)
-
-    def test_unknown_language_falls_back_to_english(self):
-        post = _make_post()
-        cls = _make_classification()
-        config = _slack_config()
-        blocks = build_post_blocks(post, cls, config, language="martian")
-
-        actions = [b for b in blocks if b["type"] == "actions"]
-        button_texts = [e["text"]["text"] for e in actions[0]["elements"]]
-        assert any("Useful" in t for t in button_texts)
+        assert len(actions) == 0
 
 
 # ===========================================================================
@@ -326,152 +245,3 @@ class TestDeliverPosts:
             count = deliver_posts(posts_cls, config)
 
         assert count == 2
-
-
-# ===========================================================================
-# Tests for feedback.py
-# ===========================================================================
-
-
-class TestParseFeedbackAction:
-    def test_valid_useful_action(self):
-        payload = {"actions": [{"value": "useful|post-1"}]}
-        result = parse_feedback_action(payload)
-        assert result == ("useful", "post-1")
-
-    def test_valid_not_useful_action(self):
-        payload = {"actions": [{"value": "not_useful|post-2"}]}
-        result = parse_feedback_action(payload)
-        assert result == ("not_useful", "post-2")
-
-    def test_valid_mute_similar_action(self):
-        payload = {"actions": [{"value": "mute_similar|post-3"}]}
-        result = parse_feedback_action(payload)
-        assert result == ("mute_similar", "post-3")
-
-    def test_invalid_payload_no_actions(self):
-        payload = {}
-        result = parse_feedback_action(payload)
-        assert result is None
-
-    def test_invalid_payload_empty_actions(self):
-        payload = {"actions": []}
-        result = parse_feedback_action(payload)
-        assert result is None
-
-    def test_invalid_payload_bad_value_format(self):
-        payload = {"actions": [{"value": "nopipe"}]}
-        result = parse_feedback_action(payload)
-        assert result is None
-
-    def test_invalid_payload_missing_value(self):
-        payload = {"actions": [{"text": "click"}]}
-        result = parse_feedback_action(payload)
-        assert result is None
-
-
-class TestShouldAutoGenerateRule:
-    def test_below_threshold(self, db_connection):
-        # Insert a post and classification so FK constraints pass
-        db_connection.execute(
-            "INSERT INTO posts (id, author_name, post_text) VALUES (?, ?, ?)",
-            ("post-1", "Author", "text"),
-        )
-        db_connection.execute(
-            "INSERT INTO classifications (id, post_id, category, confidence, reasoning, model_used) VALUES (?, ?, ?, ?, ?, ?)",
-            ("cls-1", "post-1", "Skip", 0.9, "reason", "test-model"),
-        )
-        # Insert 2 mute_similar feedbacks (below default threshold of 3)
-        for i in range(2):
-            db_connection.execute(
-                "INSERT INTO user_feedback (id, post_id, classification_id, feedback_type) VALUES (?, ?, ?, ?)",
-                (f"fb-{i}", "post-1", "cls-1", "mute_similar"),
-            )
-        db_connection.commit()
-
-        assert should_auto_generate_rule(db_connection, "post-1") is False
-
-    def test_at_threshold(self, db_connection):
-        db_connection.execute(
-            "INSERT INTO posts (id, author_name, post_text) VALUES (?, ?, ?)",
-            ("post-2", "Author", "text"),
-        )
-        db_connection.execute(
-            "INSERT INTO classifications (id, post_id, category, confidence, reasoning, model_used) VALUES (?, ?, ?, ?, ?, ?)",
-            ("cls-2", "post-2", "Skip", 0.9, "reason", "test-model"),
-        )
-        for i in range(3):
-            db_connection.execute(
-                "INSERT INTO user_feedback (id, post_id, classification_id, feedback_type) VALUES (?, ?, ?, ?)",
-                (f"fb2-{i}", "post-2", "cls-2", "mute_similar"),
-            )
-        db_connection.commit()
-
-        assert should_auto_generate_rule(db_connection, "post-2") is True
-
-    def test_custom_threshold(self, db_connection):
-        db_connection.execute(
-            "INSERT INTO posts (id, author_name, post_text) VALUES (?, ?, ?)",
-            ("post-3", "Author", "text"),
-        )
-        db_connection.execute(
-            "INSERT INTO classifications (id, post_id, category, confidence, reasoning, model_used) VALUES (?, ?, ?, ?, ?, ?)",
-            ("cls-3", "post-3", "Skip", 0.9, "reason", "test-model"),
-        )
-        db_connection.execute(
-            "INSERT INTO user_feedback (id, post_id, classification_id, feedback_type) VALUES (?, ?, ?, ?)",
-            ("fb3-0", "post-3", "cls-3", "mute_similar"),
-        )
-        db_connection.commit()
-
-        assert should_auto_generate_rule(db_connection, "post-3", threshold=1) is True
-
-    def test_only_counts_mute_similar(self, db_connection):
-        db_connection.execute(
-            "INSERT INTO posts (id, author_name, post_text) VALUES (?, ?, ?)",
-            ("post-4", "Author", "text"),
-        )
-        db_connection.execute(
-            "INSERT INTO classifications (id, post_id, category, confidence, reasoning, model_used) VALUES (?, ?, ?, ?, ?, ?)",
-            ("cls-4", "post-4", "Skip", 0.9, "reason", "test-model"),
-        )
-        # Insert mixed feedback types
-        db_connection.execute(
-            "INSERT INTO user_feedback (id, post_id, classification_id, feedback_type) VALUES (?, ?, ?, ?)",
-            ("fb4-0", "post-4", "cls-4", "useful"),
-        )
-        db_connection.execute(
-            "INSERT INTO user_feedback (id, post_id, classification_id, feedback_type) VALUES (?, ?, ?, ?)",
-            ("fb4-1", "post-4", "cls-4", "not_useful"),
-        )
-        db_connection.execute(
-            "INSERT INTO user_feedback (id, post_id, classification_id, feedback_type) VALUES (?, ?, ?, ?)",
-            ("fb4-2", "post-4", "cls-4", "mute_similar"),
-        )
-        db_connection.commit()
-
-        # Only 1 mute_similar, threshold=3 by default
-        assert should_auto_generate_rule(db_connection, "post-4") is False
-
-
-class TestGenerateMuteRule:
-    def test_returns_dict_with_expected_keys(self):
-        post = _make_post(post_text="Excited to share that I just got promoted! #blessed #hustle")
-        rule = generate_mute_rule(post, "mute-humble-brag")
-
-        assert isinstance(rule, dict)
-        assert rule["rule_name"] == "mute-humble-brag"
-        assert "patterns" in rule
-        assert isinstance(rule["patterns"], list)
-        assert len(rule["patterns"]) > 0
-
-    def test_rule_includes_author_info(self):
-        post = _make_post(author_name="Jane Doe")
-        rule = generate_mute_rule(post, "mute-jane")
-
-        assert rule["author_name"] == "Jane Doe"
-
-    def test_rule_name_preserved(self):
-        post = _make_post()
-        rule = generate_mute_rule(post, "custom-rule-name")
-        assert rule["rule_name"] == "custom-rule-name"

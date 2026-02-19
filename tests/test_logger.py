@@ -7,25 +7,21 @@ from pathlib import Path
 
 from noise_cancel.logger.export import export_csv, export_json
 from noise_cancel.logger.metrics import (
-    get_accuracy_stats,
     get_classification_stats,
     get_run_history,
 )
 from noise_cancel.logger.repository import (
     get_classifications,
-    get_feedback_counts,
-    get_feedback_for_post,
     get_posts,
     get_unclassified_posts,
     get_undelivered_classifications,
     insert_classification,
-    insert_feedback,
     insert_post,
     insert_run_log,
     mark_delivered,
     update_run_log,
 )
-from noise_cancel.models import Classification, Post, RunLog, UserFeedback
+from noise_cancel.models import Classification, Post, RunLog
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -67,21 +63,6 @@ def _make_classification(
         applied_rules=rules or [],
         model_used="test-model",
         classified_at="2025-01-01T00:00:00Z",
-    )
-
-
-def _make_feedback(
-    fb_id: str = "fb-1",
-    post_id: str = "post-1",
-    cls_id: str = "cls-1",
-    feedback_type: str = "agree",
-) -> UserFeedback:
-    return UserFeedback(
-        id=fb_id,
-        post_id=post_id,
-        classification_id=cls_id,
-        feedback_type=feedback_type,
-        created_at="2025-01-01T00:00:00Z",
     )
 
 
@@ -190,32 +171,6 @@ class TestClassifications:
 
 
 # ---------------------------------------------------------------------------
-# Repository -feedback
-# ---------------------------------------------------------------------------
-
-
-class TestFeedback:
-    def test_insert_and_get_feedback(self, db_connection: sqlite3.Connection) -> None:
-        _seed_basic(db_connection)
-        fb = _make_feedback()
-        insert_feedback(db_connection, fb)
-
-        rows = get_feedback_for_post(db_connection, "post-1")
-        assert len(rows) == 1
-        assert rows[0]["feedback_type"] == "agree"
-
-    def test_get_feedback_counts(self, db_connection: sqlite3.Connection) -> None:
-        _seed_basic(db_connection)
-        insert_feedback(db_connection, _make_feedback("fb-1", feedback_type="agree"))
-        insert_feedback(db_connection, _make_feedback("fb-2", feedback_type="agree"))
-        insert_feedback(db_connection, _make_feedback("fb-3", feedback_type="disagree"))
-
-        counts = get_feedback_counts(db_connection)
-        assert counts["agree"] == 2
-        assert counts["disagree"] == 1
-
-
-# ---------------------------------------------------------------------------
 # Repository -run logs
 # ---------------------------------------------------------------------------
 
@@ -317,18 +272,6 @@ class TestMetrics:
         assert stats["Skip"] == 2
         assert stats["Read"] == 1
 
-    def test_accuracy_stats(self, db_connection: sqlite3.Connection) -> None:
-        insert_run_log(db_connection, _make_run_log())
-        insert_post(db_connection, _make_post("p1"))
-        insert_classification(db_connection, _make_classification("c1", "p1", "Skip"))
-        insert_feedback(db_connection, _make_feedback("fb-1", "p1", "c1", "agree"))
-        insert_feedback(db_connection, _make_feedback("fb-2", "p1", "c1", "disagree"))
-
-        stats = get_accuracy_stats(db_connection)
-        assert stats["total_feedback"] == 2
-        assert stats["agree"] == 1
-        assert stats["disagree"] == 1
-
     def test_run_history(self, db_connection: sqlite3.Connection) -> None:
         for i in range(3):
             insert_run_log(db_connection, _make_run_log(f"run-{i}"))
@@ -339,7 +282,3 @@ class TestMetrics:
     def test_classification_stats_empty(self, db_connection: sqlite3.Connection) -> None:
         stats = get_classification_stats(db_connection)
         assert stats == {}
-
-    def test_accuracy_stats_empty(self, db_connection: sqlite3.Connection) -> None:
-        stats = get_accuracy_stats(db_connection)
-        assert stats["total_feedback"] == 0

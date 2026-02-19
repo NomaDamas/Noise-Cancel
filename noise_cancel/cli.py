@@ -337,13 +337,3 @@ def stats(
 ) -> None:
     """Show classification accuracy and statistics."""
     console.print("[yellow]Stats command - not yet implemented[/yellow]")
-
-
-@app.command()
-def feedback(
-    post_id: str = typer.Argument(..., help="Post ID"),
-    feedback_type: str = typer.Argument(..., help="useful/not_useful/mute_similar"),
-    config_path: str | None = typer.Option(None, "--config"),
-) -> None:
-    """Submit feedback for a classified post."""
-    console.print("[yellow]Feedback command - not yet implemented[/yellow]")

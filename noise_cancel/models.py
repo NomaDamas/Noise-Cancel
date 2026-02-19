@@ -44,18 +44,6 @@ class Classification(BaseModel):
         return d
 
 
-class UserFeedback(BaseModel):
-    id: str
-    post_id: str
-    classification_id: str
-    feedback_type: str
-    source: str = "slack"
-    created_at: str = Field(default_factory=_now_iso)
-
-    def to_dict(self) -> dict:
-        return self.model_dump()
-
-
 class RunLog(BaseModel):
     id: str
     run_type: str

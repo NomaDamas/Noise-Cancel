@@ -35,21 +35,3 @@ CREATE TABLE IF NOT EXISTS classifications (
     delivered       INTEGER NOT NULL DEFAULT 0,
     delivered_at    TEXT
 );
-
-CREATE TABLE IF NOT EXISTS user_feedback (
-    id                TEXT PRIMARY KEY,
-    post_id           TEXT NOT NULL REFERENCES posts(id),
-    classification_id TEXT NOT NULL REFERENCES classifications(id),
-    feedback_type     TEXT NOT NULL,
-    source            TEXT NOT NULL DEFAULT 'slack',
-    created_at        TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
-CREATE TABLE IF NOT EXISTS rules_history (
-    id              TEXT PRIMARY KEY,
-    rule_name       TEXT NOT NULL,
-    rule_type       TEXT NOT NULL,
-    rule_definition TEXT NOT NULL,
-    active          INTEGER NOT NULL DEFAULT 1,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now'))
-);

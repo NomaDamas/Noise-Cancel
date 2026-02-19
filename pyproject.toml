@@ -16,7 +16,6 @@ dependencies = [
     "httpx>=0.28.0",
     "cryptography>=44.0.0",
     "platformdirs>=4.0.0",
-    "emoji>=2.14.0",
     "rich>=13.9.0",
     "slack-sdk>=3.34.0",
 ]

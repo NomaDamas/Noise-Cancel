@@ -17,7 +17,7 @@ def test_apply_migrations(tmp_path):
 
     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     tables = {row[0] for row in cursor.fetchall()}
-    expected = {"posts", "classifications", "user_feedback", "rules_history", "run_logs"}
+    expected = {"posts", "classifications", "run_logs"}
     assert expected.issubset(tables)
     conn.close()
 

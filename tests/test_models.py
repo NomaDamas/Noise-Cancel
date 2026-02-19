@@ -1,4 +1,4 @@
-from noise_cancel.models import Classification, Post, RunLog, UserFeedback
+from noise_cancel.models import Classification, Post, RunLog
 
 
 def test_post_creation():
@@ -25,16 +25,6 @@ def test_classification_creation():
     assert c.category == "Read"
     assert c.confidence == 0.95
     assert c.delivered is False
-
-
-def test_user_feedback_creation():
-    fb = UserFeedback(
-        id="fb-1",
-        post_id="test-123",
-        classification_id="cls-1",
-        feedback_type="useful",
-    )
-    assert fb.source == "slack"
 
 
 def test_run_log_creation():
