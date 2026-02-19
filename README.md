@@ -26,32 +26,32 @@ uv run playwright install chromium
 
 ### 2. Set up Slack webhook
 
-noise-cancel은 Slack Incoming Webhook으로 분류된 포스트를 전달합니다. 처음이라면 아래 순서대로 진행하세요.
+noise-cancel delivers classified posts to Slack via Incoming Webhooks. Follow the steps below to set one up.
 
-**Step A. Slack App 만들기**
+**Step A. Create a Slack App**
 
-1. [https://api.slack.com/apps](https://api.slack.com/apps) 접속
-2. **Create New App** 클릭
-3. **From scratch** 선택
-4. App Name에 `noise-cancel` (아무 이름이나 가능), Workspace에 본인 워크스페이스 선택
-5. **Create App** 클릭
+1. Go to [https://api.slack.com/apps](https://api.slack.com/apps)
+2. Click **Create New App**
+3. Select **From scratch**
+4. Enter any App Name (e.g. `noise-cancel`), select your workspace
+5. Click **Create App**
 
-**Step B. Incoming Webhook 활성화**
+**Step B. Enable Incoming Webhooks**
 
-1. 왼쪽 사이드바에서 **Incoming Webhooks** 클릭
-2. 우측 상단 토글을 **On**으로 변경
-3. 페이지 하단 **Add New Webhook to Workspace** 클릭
-4. 포스트를 받을 채널 선택 (예: `#linkedin-feed`) → **Allow** 클릭
-5. 생성된 **Webhook URL**을 복사 (`https://hooks.slack.com/services/T.../B.../...` 형식)
+1. In the left sidebar, click **Incoming Webhooks**
+2. Toggle it **On** (top right)
+3. Click **Add New Webhook to Workspace** at the bottom
+4. Select a channel to receive posts (e.g. `#linkedin-feed`) → click **Allow**
+5. Copy the generated **Webhook URL** (`https://hooks.slack.com/services/T.../B.../...`)
 
-**Step C. 환경변수 설정**
+**Step C. Set environment variables**
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."                              # Anthropic API 키
-export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T.../B.../..."  # 위에서 복사한 URL
+export ANTHROPIC_API_KEY="sk-ant-..."                              # Anthropic API key
+export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T.../B.../..."  # Webhook URL from above
 ```
 
-> **Tip**: `~/.zshrc` 또는 `~/.bashrc`에 추가해두면 매번 설정하지 않아도 됩니다.
+> **Tip**: Add these to `~/.zshrc` or `~/.bashrc` so they persist across sessions.
 >
 > ```bash
 > echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.zshrc
@@ -95,6 +95,53 @@ noise-cancel login
 
 A browser opens for manual LinkedIn login. Session cookies are encrypted (Fernet) and saved locally.
 
+#### Running on a remote / headless server
+
+`noise-cancel login` requires a GUI browser. On a server without a display, you **cannot** simply transfer cookies from another machine — LinkedIn binds sessions to the originating IP and device fingerprint, and will invalidate the session (and log you out everywhere) if it detects reuse from a different environment.
+
+The solution is to run a virtual display + VNC server so you can open a real browser on the server itself.
+
+**One-time setup:**
+
+```bash
+# Install Xvfb (virtual display) and x11vnc (VNC server)
+sudo apt-get install -y xvfb x11vnc
+
+# Set a VNC password
+x11vnc -storepasswd /tmp/x11vnc.pw
+
+# Start virtual display and VNC server
+Xvfb :99 -screen 0 1920x1080x24 &
+x11vnc -display :99 -rfbauth /tmp/x11vnc.pw -listen localhost -rfbport 5900 -forever &
+```
+
+**From your local machine:**
+
+```bash
+# Open an SSH tunnel (adjust port/user/host as needed)
+ssh -L 5900:localhost:5900 user@your-server
+
+# Connect with a VNC client
+# Mac:     open vnc://localhost:5900
+# Windows: use RealVNC Viewer → localhost:5900
+# Linux:   vncviewer localhost:5900
+```
+
+**In the SSH shell (with the tunnel open):**
+
+```bash
+DISPLAY=:99 noise-cancel login
+```
+
+A Chromium window will appear in your VNC client. Log in to LinkedIn, and the session is saved. After login, stop the VNC server and virtual display:
+
+```bash
+kill $(pgrep x11vnc)
+kill $(pgrep Xvfb)
+```
+
+From this point on, `noise-cancel run` works headlessly — the session was created on the same IP, so LinkedIn won't flag it. Re-run the VNC setup when the session expires (`session_ttl_days`, default: 7 days).
+
 ### 5. Run
 
 ```bash
@@ -124,7 +171,6 @@ That's it. "Read" posts arrive in your Slack channel with author, preview, confi
 | `noise-cancel deliver` | Deliver classified posts to Slack |
 | `noise-cancel logs` | Show run history |
 | `noise-cancel stats` | Show classification statistics |
-| `noise-cancel feedback <post_id> <type>` | Submit feedback (useful / not_useful / mute_similar) |
 
 **Common flags**: `--config PATH`, `--verbose`, `--dry-run`, `--limit N`
 
@@ -181,68 +227,68 @@ delivery:
 
 ### Whitelist / Blacklist
 
-AI 분류와 별개로, 특정 키워드나 저자를 강제로 Read 또는 Skip으로 지정할 수 있습니다. AI 분류 후에 적용되며, 항상 AI 결과를 덮어씁니다.
+You can force specific keywords or authors to always be classified as Read or Skip, regardless of the AI classification. These rules are applied after AI classification and always override the AI result.
 
 ```yaml
 classifier:
-  whitelist:                          # 매칭되면 무조건 Read
+  whitelist:                          # Matched → always Read
     keywords: ["arxiv", "research paper", "ICML", "NeurIPS"]
     authors: ["Yann LeCun", "Andrej Karpathy"]
 
-  blacklist:                          # 매칭되면 무조건 Skip
+  blacklist:                          # Matched → always Skip
     keywords: ["agree?", "thoughts?", "like if you", "#hiring"]
     authors: ["Spammy Recruiter"]
 ```
 
-- 키워드 매칭은 대소문자 구분 없음 (case-insensitive)
-- 둘 다 매칭되면 **whitelist가 이김** (benefit of the doubt)
+- Keyword matching is case-insensitive
+- If both match, **whitelist wins** (benefit of the doubt)
 
 ## Slack Delivery
 
-### 메시지 구성
+### Message format
 
-"Read"로 분류된 포스트가 Slack 채널에 아래와 같은 형태로 도착합니다:
+Posts classified as "Read" arrive in Slack in the following format:
 
 ```
 ┌──────────────────────────────────────────┐
-│ :fire: Read                              │  ← 카테고리 헤더
+│ :fire: Read                              │  ← Category header
 ├──────────────────────────────────────────┤
-│ Author: Jane Doe                         │  ← LinkedIn 프로필 링크 포함
+│ Author: Jane Doe                         │  ← Includes LinkedIn profile link
 │                                          │
-│ "Just published our research on          │  ← 포스트 본문 미리보기
-│  efficient transformer architectures..." │    (max_text_preview 글자까지)
+│ "Just published our research on          │  ← Post text preview
+│  efficient transformer architectures..." │    (up to max_text_preview chars)
 │                                          │
-│ Confidence: 95% | AI research with...    │  ← 분류 신뢰도 + 이유
+│ Confidence: 95% | AI research with...    │  ← Confidence score + reasoning
 ├──────────────────────────────────────────┤
-│ [Useful] [Not Useful] [Mute Similar]     │  ← 피드백 버튼
-│ [View on LinkedIn ↗]                     │  ← 원본 링크
+│ [Useful] [Not Useful] [Mute Similar]     │  ← Feedback buttons
+│ [View on LinkedIn ↗]                     │  ← Original post link
 └──────────────────────────────────────────┘
 ```
 
-### 피드백 버튼
+### Feedback buttons
 
-| 버튼 | 동작 |
-|------|------|
-| **Useful** | 분류가 정확했음을 기록 |
-| **Not Useful** | 분류가 틀렸음을 기록 (정확도 통계에 반영) |
-| **Mute Similar** | 비슷한 포스트 차단 요청. 누적 3회 시 자동으로 suppress 규칙 생성 |
+| Button | Action |
+|--------|--------|
+| **Useful** | Records that the classification was correct |
+| **Not Useful** | Records that the classification was wrong (used for accuracy stats) |
+| **Mute Similar** | Requests suppression of similar posts. After 3 cumulative mutes, an automatic suppress rule is created |
 
-### 설정 옵션
+### Delivery settings
 
 ```yaml
 delivery:
   slack:
-    include_categories: [Read]     # 어떤 카테고리를 Slack에 보낼지
-    include_reasoning: true        # AI 분류 이유 표시 여부
-    max_text_preview: 300          # 포스트 미리보기 글자 수
-    enable_feedback_buttons: true  # 피드백 버튼 표시 여부
+    include_categories: [Read]     # Which categories to send to Slack
+    include_reasoning: true        # Show AI classification reasoning
+    max_text_preview: 300          # Post preview character limit
+    enable_feedback_buttons: true  # Show feedback buttons
 ```
 
-### Webhook 관련 주의사항
+### Webhook security notes
 
-- Webhook URL은 **채널당 하나**입니다. 다른 채널로 보내려면 새 webhook을 추가하세요.
-- Slack Free 플랜에서도 Incoming Webhook은 정상 동작합니다.
-- Webhook URL이 노출되면 누구나 해당 채널에 메시지를 보낼 수 있으므로, `.env` 파일이나 환경변수로 관리하고 **절대 git에 커밋하지 마세요**.
+- Each webhook URL is tied to **one channel**. Add a new webhook to post to a different channel.
+- Incoming Webhooks work on the Slack Free plan.
+- Anyone with the webhook URL can post to your channel. Store it in `.env` or environment variables and **never commit it to git**.
 
 ## Data Storage
 
