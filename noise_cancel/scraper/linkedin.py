@@ -101,16 +101,38 @@ class LinkedInScraper(AbstractScraper):
         for k, v in counts.items():
             print(f"[debug] {k}: {v}", file=sys.stderr)
 
-    async def _scroll_page(self, page: object, scroll_count: int) -> None:
-        """Perform a human-like scroll sequence on the page."""
+    async def _scroll_and_collect(self, page: object, scroll_count: int) -> list[dict]:
+        """Scroll the page and extract posts after each scroll.
+
+        LinkedIn uses virtual scrolling that unmounts off-screen elements,
+        so we must collect posts incrementally rather than at the end.
+        """
         page = cast(Any, page)
+        collected: dict[str, dict] = {}
+
+        # Grab whatever is visible before scrolling
+        for p in await page.evaluate(_JS_EXTRACT_POSTS):
+            if p.get("id"):
+                collected[p["id"]] = p
+
         for action in human_scroll_sequence(scroll_count):
             delta_y = action["scroll_y"]
             if action["direction"] == "up":
                 delta_y = -delta_y
             await page.mouse.wheel(0, delta_y)
             await asyncio.sleep(action["delay"])
+
+            for p in await page.evaluate(_JS_EXTRACT_POSTS):
+                if p.get("id") and p["id"] not in collected:
+                    collected[p["id"]] = p
+
+        # Final pause + extraction
         await asyncio.sleep(random_delay(1.0, 2.0))
+        for p in await page.evaluate(_JS_EXTRACT_POSTS):
+            if p.get("id") and p["id"] not in collected:
+                collected[p["id"]] = p
+
+        return list(collected.values())
 
     async def scrape_feed(self, scroll_count: int = 10, debug: bool = False) -> list[Post]:
         """Scrape LinkedIn feed posts by scrolling and extracting from the DOM."""
@@ -138,16 +160,12 @@ class LinkedInScraper(AbstractScraper):
                 msg = f"Session expired or invalid — redirected to {current_url}"
                 raise RuntimeError(msg)
 
-            await self._scroll_page(page, scroll_count)
+            raw_posts = await self._scroll_and_collect(page, scroll_count)
 
             if debug:
                 await self._debug_snapshot(page, "after_scroll")
-
-            raw_posts: list[dict] = await page.evaluate(_JS_EXTRACT_POSTS)
-
-            if debug:
                 non_empty = sum(1 for p in raw_posts if p.get("post_text"))
-                print(f"[debug] raw_posts extracted: {len(raw_posts)}, with text: {non_empty}", file=sys.stderr)
+                print(f"[debug] raw_posts collected: {len(raw_posts)}, with text: {non_empty}", file=sys.stderr)
 
             await browser.close()
         finally:
