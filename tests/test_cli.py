@@ -499,3 +499,84 @@ class TestDeliverCommand:
         result = runner.invoke(app, ["deliver", "--config", str(config_path)])
         assert result.exit_code == 0
         assert "No undelivered classifications" in result.output
+
+
+# ===========================================================================
+# Run (pipeline) command tests
+# ===========================================================================
+
+
+class TestRunCommand:
+    def test_run_executes_full_pipeline(self, tmp_path: Path):
+        from noise_cancel.classifier.schemas import PostClassification
+        from noise_cancel.database import apply_migrations, get_connection
+        from noise_cancel.models import Post
+
+        config_path, data_dir = _write_config(tmp_path)
+        _create_session(data_dir)
+
+        posts = [Post(id="p1", author_name="Alice", post_text="Hello", post_url="https://li.com/p1")]
+        mock_scraper = _mock_feed_scraper(posts)
+        mock_cls = [PostClassification(post_index=0, category="Read", confidence=0.9, reasoning="Good")]
+
+        with (
+            patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock_scraper),
+            patch("noise_cancel.classifier.engine.ClassificationEngine.classify_posts", return_value=mock_cls),
+            patch("noise_cancel.delivery.slack.deliver_posts", return_value=1),
+        ):
+            result = runner.invoke(app, ["run", "--config", str(config_path)])
+
+        assert result.exit_code == 0
+        assert "Pipeline complete" in result.output
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        rows = conn.execute("SELECT * FROM run_logs WHERE run_type = 'pipeline'").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["status"] == "completed"
+        conn.close()
+
+    def test_run_stops_on_scrape_failure(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        # No session → scrape will fail
+        data_dir.mkdir(parents=True, exist_ok=True)
+        # Pre-create DB so pipeline run_log can be written
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        conn.close()
+
+        result = runner.invoke(app, ["run", "--config", str(config_path)])
+
+        assert result.exit_code == 1
+        assert "Pipeline stopped at scrape" in result.output
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        rows = conn.execute("SELECT * FROM run_logs WHERE run_type = 'pipeline'").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["status"] == "error"
+        conn.close()
+
+    def test_run_dry_run_skips_deliver(self, tmp_path: Path):
+        from noise_cancel.classifier.schemas import PostClassification
+        from noise_cancel.models import Post
+
+        config_path, data_dir = _write_config(tmp_path)
+        _create_session(data_dir)
+
+        posts = [Post(id="p1", author_name="Alice", post_text="Hello", post_url="https://li.com/p1")]
+        mock_scraper = _mock_feed_scraper(posts)
+        mock_cls = [PostClassification(post_index=0, category="Read", confidence=0.9, reasoning="Good")]
+
+        with (
+            patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock_scraper),
+            patch("noise_cancel.classifier.engine.ClassificationEngine.classify_posts", return_value=mock_cls),
+            patch("noise_cancel.delivery.slack.deliver_posts", return_value=0) as mock_deliver,
+        ):
+            result = runner.invoke(app, ["run", "--config", str(config_path), "--dry-run"])
+
+        assert result.exit_code == 0
+        assert "Pipeline complete" in result.output
+        mock_deliver.assert_not_called()

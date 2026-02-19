@@ -317,9 +317,41 @@ def run(
     config_path: str | None = typer.Option(None, "--config"),
     verbose: bool = typer.Option(False, "--verbose"),
     dry_run: bool = typer.Option(False, "--dry-run"),
+    limit: int | None = typer.Option(None, "--limit", help="Max posts per step"),
 ) -> None:
     """Run full pipeline: scrape -> classify -> deliver."""
-    console.print("[yellow]Run command - not yet implemented[/yellow]")
+    import uuid
+
+    from noise_cancel.logger.repository import insert_run_log, update_run_log
+    from noise_cancel.models import RunLog
+
+    cfg = _get_config(config_path)
+    conn = _get_db(cfg)
+
+    run_id = uuid.uuid4().hex
+    run_log = RunLog(id=run_id, run_type="pipeline")
+    insert_run_log(conn, run_log)
+
+    console.print("[cyan]Pipeline: scrape -> classify -> deliver[/cyan]")
+
+    steps = [
+        ("scrape", lambda: scrape(config_path=config_path, verbose=verbose, limit=limit)),
+        ("classify", lambda: classify(config_path=config_path, dry_run=dry_run, limit=limit)),
+    ]
+    if not dry_run:
+        steps.append(("deliver", lambda: deliver(config_path=config_path)))
+
+    for step_name, step_fn in steps:
+        try:
+            step_fn()
+        except (SystemExit, typer.Exit) as exc:
+            if getattr(exc, "code", 1):
+                update_run_log(conn, run_id, status="error", error_message=f"{step_name} failed")
+                console.print(f"[red]Pipeline stopped at {step_name}.[/red]")
+                raise typer.Exit(1) from None
+
+    update_run_log(conn, run_id, status="completed")
+    console.print("[green]Pipeline complete.[/green]")
 
 
 @app.command()
