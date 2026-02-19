@@ -13,6 +13,7 @@ _DEFAULT_DATA_DIR = user_data_dir("noise-cancel")
 _DEFAULT_GENERAL: dict[str, Any] = {
     "data_dir": _DEFAULT_DATA_DIR,
     "max_posts_per_run": 50,
+    "language": "english",
 }
 
 _DEFAULT_SCRAPER: dict[str, Any] = {
@@ -75,6 +76,7 @@ _DEFAULT_CONFIG_YAML = f"""\
 general:
   data_dir: {_DEFAULT_DATA_DIR}
   max_posts_per_run: 50
+  language: english  # Summary language: english, korean, japanese, etc.
 
 scraper:
   headless: true

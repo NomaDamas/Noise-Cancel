@@ -34,13 +34,14 @@ def deliver_posts(
 
     slack_config = config.delivery.get("slack", {})
     include_categories = slack_config.get("include_categories", [])
+    language = config.general.get("language", "english")
 
     delivered = 0
     for post, classification in posts_with_classifications:
         if classification.category not in include_categories:
             continue
 
-        blocks = build_post_blocks(post, classification, slack_config)
+        blocks = build_post_blocks(post, classification, slack_config, language=language)
         fallback_text = f"[{classification.category}] {post.author_name}: {post.post_text[:100]}"
 
         if send_to_slack(webhook_url, blocks, text=fallback_text):

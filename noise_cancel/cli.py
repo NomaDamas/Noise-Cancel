@@ -227,6 +227,7 @@ def classify(
             category=pc.category,
             confidence=pc.confidence,
             reasoning=pc.reasoning,
+            summary=pc.summary,
             applied_rules=pc.applied_rules,
             model_used=model_used,
         )
@@ -291,6 +292,7 @@ def deliver(
             category=row["category"],
             confidence=row["confidence"],
             reasoning=row["reasoning"],
+            summary=row.get("summary", ""),
             applied_rules=applied_rules,
             model_used=row["model_used"],
             classified_at=row["classified_at"],

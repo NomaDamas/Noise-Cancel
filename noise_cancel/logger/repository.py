@@ -34,15 +34,16 @@ def insert_classification(conn: sqlite3.Connection, classification: Classificati
     d = classification.to_dict()
     conn.execute(
         """INSERT INTO classifications
-           (id, post_id, category, confidence, reasoning, applied_rules,
+           (id, post_id, category, confidence, reasoning, summary, applied_rules,
             model_used, classified_at, delivered, delivered_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             d["id"],
             d["post_id"],
             d["category"],
             d["confidence"],
             d["reasoning"],
+            d["summary"],
             json.dumps(d["applied_rules"]),
             d["model_used"],
             d["classified_at"],

@@ -31,7 +31,8 @@ class ClassificationEngine:
         whitelist = cfg.get("whitelist", {})
         blacklist = cfg.get("blacklist", {})
 
-        system_prompt = build_system_prompt(categories, whitelist, blacklist)
+        language = self._config.general.get("language", "english")
+        system_prompt = build_system_prompt(categories, whitelist, blacklist, language=language)
         user_prompt = build_user_prompt(posts)
 
         tool_schema = BatchClassificationResult.model_json_schema()
@@ -108,6 +109,7 @@ class ClassificationEngine:
                     category=api_cls.category,
                     confidence=api_cls.confidence,
                     reasoning=api_cls.reasoning,
+                    summary=api_cls.summary,
                 )
 
         return [r for r in results if r is not None]

@@ -36,18 +36,23 @@ def _make_classification(
     category: str = "Read",
     confidence: float = 0.92,
     reasoning: str = "Highly relevant ML content.",
+    summary: str = "A post about ML and AI trends. Covers recent advances and predictions for the future.",
     model_used: str = "claude-sonnet-4-6",
 ) -> Classification:
     return Classification(
-        id=cls_id, post_id=post_id, category=category, confidence=confidence, reasoning=reasoning, model_used=model_used
+        id=cls_id,
+        post_id=post_id,
+        category=category,
+        confidence=confidence,
+        reasoning=reasoning,
+        summary=summary,
+        model_used=model_used,
     )
 
 
 def _slack_config(**overrides) -> dict:
     defaults = {
         "include_categories": ["Read"],
-        "include_reasoning": True,
-        "max_text_preview": 300,
         "enable_feedback_buttons": True,
     }
     defaults.update(overrides)
@@ -66,37 +71,27 @@ class TestBuildPostBlocks:
         config = _slack_config()
         blocks = build_post_blocks(post, cls, config)
 
-        # Should be a list of dicts
         assert isinstance(blocks, list)
         assert all(isinstance(b, dict) for b in blocks)
 
-        # Check block types present
         block_types = [b["type"] for b in blocks]
-        assert "header" in block_types
         assert "section" in block_types
-        assert "context" in block_types
         assert "actions" in block_types
+        # No header or context blocks in new layout
+        assert "header" not in block_types
+        assert "context" not in block_types
 
-    def test_header_contains_category(self):
-        post = _make_post()
-        cls = _make_classification(category="Read")
-        config = _slack_config()
-        blocks = build_post_blocks(post, cls, config)
-
-        header = next(b for b in blocks if b["type"] == "header")
-        assert "Read" in header["text"]["text"]
-
-    def test_author_linked_when_url_exists(self):
+    def test_author_name_displayed_without_link(self):
         post = _make_post(author_url="https://linkedin.com/in/janedoe")
         cls = _make_classification()
         config = _slack_config()
         blocks = build_post_blocks(post, cls, config)
 
         sections = [b for b in blocks if b["type"] == "section"]
-        # First section should have author info with link
         author_section = sections[0]
         text_content = author_section["text"]["text"]
-        assert "<https://linkedin.com/in/janedoe|Jane Doe>" in text_content
+        assert text_content == "*Jane Doe*"
+        assert "<" not in text_content  # no Slack link syntax
 
     def test_author_plain_when_no_url(self):
         post = _make_post(author_url=None)
@@ -108,64 +103,38 @@ class TestBuildPostBlocks:
         author_section = sections[0]
         text_content = author_section["text"]["text"]
         assert "Jane Doe" in text_content
-        assert "<" not in text_content  # no Slack link syntax
+        assert "<" not in text_content
 
-    def test_text_truncation(self):
-        long_text = "A" * 500
-        post = _make_post(post_text=long_text)
-        cls = _make_classification()
-        config = _slack_config(max_text_preview=100)
-        blocks = build_post_blocks(post, cls, config)
-
-        sections = [b for b in blocks if b["type"] == "section"]
-        # The preview section (second section) should be truncated
-        preview_section = sections[1]
-        preview_text = preview_section["text"]["text"]
-        assert len(preview_text) <= 110  # 100 + ellipsis + minor overhead
-        assert "..." in preview_text
-
-    def test_text_not_truncated_when_short(self):
-        post = _make_post(post_text="Short post")
-        cls = _make_classification()
-        config = _slack_config(max_text_preview=300)
-        blocks = build_post_blocks(post, cls, config)
-
-        sections = [b for b in blocks if b["type"] == "section"]
-        preview_section = sections[1]
-        assert "Short post" in preview_section["text"]["text"]
-        assert "..." not in preview_section["text"]["text"]
-
-    def test_reasoning_included_when_enabled(self):
+    def test_summary_displayed(self):
         post = _make_post()
-        cls = _make_classification(reasoning="Highly relevant ML content.")
-        config = _slack_config(include_reasoning=True)
-        blocks = build_post_blocks(post, cls, config)
-
-        context_blocks = [b for b in blocks if b["type"] == "context"]
-        assert len(context_blocks) >= 1
-        context_text = str(context_blocks[0]["elements"])
-        assert "Highly relevant ML content." in context_text
-
-    def test_reasoning_excluded_when_disabled(self):
-        post = _make_post()
-        cls = _make_classification(reasoning="Highly relevant ML content.")
-        config = _slack_config(include_reasoning=False)
-        blocks = build_post_blocks(post, cls, config)
-
-        context_blocks = [b for b in blocks if b["type"] == "context"]
-        # Context block should exist (confidence), but not contain reasoning
-        all_text = str(context_blocks)
-        assert "Highly relevant ML content." not in all_text
-
-    def test_confidence_in_context(self):
-        post = _make_post()
-        cls = _make_classification(confidence=0.92)
+        cls = _make_classification(summary="This is a 3-line summary. It covers key points. Very informative.")
         config = _slack_config()
         blocks = build_post_blocks(post, cls, config)
 
-        context_blocks = [b for b in blocks if b["type"] == "context"]
-        context_text = str(context_blocks[0]["elements"])
-        assert "92" in context_text  # 0.92 -> 92%
+        sections = [b for b in blocks if b["type"] == "section"]
+        summary_section = sections[1]
+        assert "This is a 3-line summary" in summary_section["text"]["text"]
+
+    def test_falls_back_to_post_text_when_no_summary(self):
+        post = _make_post(post_text="Original post text here")
+        cls = _make_classification(summary="")
+        config = _slack_config()
+        blocks = build_post_blocks(post, cls, config)
+
+        sections = [b for b in blocks if b["type"] == "section"]
+        summary_section = sections[1]
+        assert "Original post text here" in summary_section["text"]["text"]
+
+    def test_fallback_text_truncated_at_300(self):
+        long_text = "A" * 500
+        post = _make_post(post_text=long_text)
+        cls = _make_classification(summary="")
+        config = _slack_config()
+        blocks = build_post_blocks(post, cls, config)
+
+        sections = [b for b in blocks if b["type"] == "section"]
+        summary_section = sections[1]
+        assert len(summary_section["text"]["text"]) == 300
 
     def test_action_buttons_present(self):
         post = _make_post(post_id="post-42")
@@ -205,7 +174,6 @@ class TestBuildPostBlocks:
 
         actions = [b for b in blocks if b["type"] == "actions"]
         assert len(actions) == 1
-        # Find link button
         link_buttons = [e for e in actions[0]["elements"] if e.get("url")]
         assert len(link_buttons) >= 1
         assert link_buttons[0]["url"] == "https://linkedin.com/posts/123"
@@ -220,6 +188,41 @@ class TestBuildPostBlocks:
         if actions:
             link_buttons = [e for e in actions[0]["elements"] if e.get("url")]
             assert len(link_buttons) == 0
+
+    def test_korean_button_labels(self):
+        post = _make_post(post_url="https://linkedin.com/posts/123")
+        cls = _make_classification()
+        config = _slack_config()
+        blocks = build_post_blocks(post, cls, config, language="korean")
+
+        actions = [b for b in blocks if b["type"] == "actions"]
+        button_texts = [e["text"]["text"] for e in actions[0]["elements"]]
+        assert any("유용해요" in t for t in button_texts)
+        assert any("별로예요" in t for t in button_texts)
+        assert any("비슷한 글 숨기기" in t for t in button_texts)
+        assert any("LinkedIn에서 보기" in t for t in button_texts)
+
+    def test_english_button_labels_by_default(self):
+        post = _make_post(post_url="https://linkedin.com/posts/123")
+        cls = _make_classification()
+        config = _slack_config()
+        blocks = build_post_blocks(post, cls, config)
+
+        actions = [b for b in blocks if b["type"] == "actions"]
+        button_texts = [e["text"]["text"] for e in actions[0]["elements"]]
+        assert any("Useful" in t for t in button_texts)
+        assert any("Not Useful" in t for t in button_texts)
+        assert any("View on LinkedIn" in t for t in button_texts)
+
+    def test_unknown_language_falls_back_to_english(self):
+        post = _make_post()
+        cls = _make_classification()
+        config = _slack_config()
+        blocks = build_post_blocks(post, cls, config, language="martian")
+
+        actions = [b for b in blocks if b["type"] == "actions"]
+        button_texts = [e["text"]["text"] for e in actions[0]["elements"]]
+        assert any("Useful" in t for t in button_texts)
 
 
 # ===========================================================================

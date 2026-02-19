@@ -151,6 +151,19 @@ class TestBuildSystemPrompt:
         assert len(prompt) > 0
         assert "Override Rules" not in prompt
 
+    def test_language_instruction_when_non_english(self):
+        from noise_cancel.classifier.prompts import build_system_prompt
+
+        prompt = build_system_prompt(categories=[], language="korean")
+        assert "korean" in prompt
+        assert "Write all summaries in korean" in prompt
+
+    def test_no_language_instruction_when_english(self):
+        from noise_cancel.classifier.prompts import build_system_prompt
+
+        prompt = build_system_prompt(categories=[], language="english")
+        assert "Write all summaries" not in prompt
+
 
 class TestBuildUserPrompt:
     def test_posts_indexed(self):

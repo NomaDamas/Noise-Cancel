@@ -10,6 +10,7 @@ def build_system_prompt(
     categories: list[dict],
     whitelist: dict | None = None,
     blacklist: dict | None = None,
+    language: str = "english",
 ) -> str:
     lines = [
         "You are a LinkedIn feed classifier. Classify each post into exactly one category.",
@@ -70,6 +71,11 @@ def build_system_prompt(
     lines.append("")
     lines.append("## Instructions")
     lines.append("For each post, provide: category, confidence (0.0-1.0), and reasoning.")
+    lines.append("For each post, also provide a 'summary': a concise 2-3 sentence summary of the post content.")
+    if language != "english":
+        lines.append(
+            f"IMPORTANT: Write all summaries in {language}, even if the original post is in a different language."
+        )
     lines.append("Use the classify_posts tool to return your classifications.")
 
     return "\n".join(lines)

@@ -1,0 +1,1 @@
+ALTER TABLE classifications ADD COLUMN summary TEXT NOT NULL DEFAULT '';

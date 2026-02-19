@@ -8,6 +8,7 @@ class PostClassification(BaseModel):
     category: str
     confidence: float
     reasoning: str
+    summary: str = ""
     applied_rules: list[str] = Field(default_factory=list)
 
 

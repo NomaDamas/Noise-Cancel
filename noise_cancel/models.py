@@ -31,6 +31,7 @@ class Classification(BaseModel):
     category: str
     confidence: float
     reasoning: str
+    summary: str = ""
     applied_rules: list[str] = Field(default_factory=list)
     model_used: str
     classified_at: str = Field(default_factory=_now_iso)
