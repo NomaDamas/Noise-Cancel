@@ -95,28 +95,6 @@ noise-cancel login
 
 A browser opens for manual LinkedIn login. Session cookies are encrypted (Fernet) and saved locally.
 
-#### Running on a remote / headless server?
-
-`noise-cancel login` requires a GUI browser. On a server without a display, copy cookies directly from your browser.
-
-**Step 1 — Get cookies from your browser**
-
-Open DevTools on any LinkedIn page (F12 → Application → Cookies → `https://www.linkedin.com`) and copy the values of:
-- **`li_at`** — main auth token (long string starting with `AQEDAT...`)
-- **`JSESSIONID`** — session ID (string wrapped in double quotes like `"ajax:123..."`)
-
-**Step 2 — Import on the remote server**
-
-```bash
-noise-cancel cookie-import \
-  --li-at "AQEDATxxxxxx..." \
-  --jsessionid "ajax:1234567890123456789"
-```
-
-The cookies are encrypted and saved locally — no file transfer needed.
-
-> **Note**: These cookies are your LinkedIn auth tokens. Keep them secret. If scraping starts failing with session errors, repeat this step with fresh cookie values.
-
 ### 5. Run
 
 ```bash
@@ -146,7 +124,7 @@ That's it. "Read" posts arrive in your Slack channel with author, preview, confi
 | `noise-cancel deliver` | Deliver classified posts to Slack |
 | `noise-cancel logs` | Show run history |
 | `noise-cancel stats` | Show classification statistics |
-| `noise-cancel cookie-import` | Build session from raw browser cookies — `--li-at` and `--jsessionid` required |
+| `noise-cancel feedback <post_id> <type>` | Submit feedback (useful / not_useful / mute_similar) |
 
 **Common flags**: `--config PATH`, `--verbose`, `--dry-run`, `--limit N`
 

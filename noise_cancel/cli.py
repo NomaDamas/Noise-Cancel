@@ -99,7 +99,6 @@ def login(
 def scrape(
     config_path: str | None = typer.Option(None, "--config"),
     verbose: bool = typer.Option(False, "--verbose"),
-    debug: bool = typer.Option(False, "--debug", help="Save screenshots and print DOM element counts"),
     limit: int | None = typer.Option(None, "--limit", help="Max posts to save (overrides config)"),
 ) -> None:
     """Scrape LinkedIn feed posts."""
@@ -149,7 +148,7 @@ def scrape(
         console.print(f"[cyan]Scraping with {scroll_count} scrolls...[/cyan]")
 
     try:
-        posts = asyncio.run(scraper.scrape_feed(scroll_count=scroll_count, debug=debug))
+        posts = asyncio.run(scraper.scrape_feed(scroll_count=scroll_count))
     except RuntimeError as exc:
         console.print(f"[red]Scrape failed: {exc}[/red]")
         update_run_log(conn, run_id, status="error", error_message=str(exc))
@@ -370,67 +369,3 @@ def stats(
 ) -> None:
     """Show classification accuracy and statistics."""
     console.print("[yellow]Stats command - not yet implemented[/yellow]")
-
-
-@app.command(name="cookie-import")
-def cookie_import(
-    li_at: str = typer.Option(..., "--li-at", help="Value of the li_at cookie"),
-    jsessionid: str = typer.Option(..., "--jsessionid", help="Value of the JSESSIONID cookie (with quotes)"),
-    config_path: str | None = typer.Option(None, "--config"),
-) -> None:
-    """Build a session directly from raw LinkedIn cookies (no login flow needed).
-
-    Get cookie values from: Browser DevTools → Application → Cookies → linkedin.com
-
-    Required cookies: li_at, JSESSIONID
-    """
-    import time
-
-    from noise_cancel.scraper.auth import generate_key, save_session
-
-    cfg = _get_config(config_path)
-    data_dir = Path(cfg.general["data_dir"])
-    data_dir.mkdir(parents=True, exist_ok=True)
-    key_path = data_dir / "session.key"
-    session_path = data_dir / "session.enc"
-
-    ttl_days = cfg.scraper.get("session_ttl_days", 7)
-    expires = time.time() + ttl_days * 86400
-
-    storage_state = {
-        "cookies": [
-            {
-                "name": "li_at",
-                "value": li_at,
-                "domain": ".linkedin.com",
-                "path": "/",
-                "expires": expires,
-                "httpOnly": True,
-                "secure": True,
-                "sameSite": "None",
-            },
-            {
-                "name": "JSESSIONID",
-                "value": jsessionid,
-                "domain": ".www.linkedin.com",
-                "path": "/",
-                "expires": expires,
-                "httpOnly": False,
-                "secure": True,
-                "sameSite": "None",
-            },
-        ],
-        "origins": [],
-    }
-
-    if key_path.exists():
-        key = key_path.read_text().strip()
-    else:
-        key = generate_key()
-        key_path.write_text(key)
-        key_path.chmod(0o600)
-
-    save_session(storage_state, key, str(session_path))
-    session_path.chmod(0o600)
-    console.print(f"[green]Session saved to {session_path}[/green]")
-    console.print("[cyan]Test it:[/cyan] noise-cancel scrape --debug")

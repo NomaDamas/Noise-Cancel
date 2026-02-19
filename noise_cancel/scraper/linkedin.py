@@ -84,60 +84,8 @@ class LinkedInScraper(AbstractScraper):
         """Return captured storage state from the last login, or None."""
         return self._storage_state
 
-    async def _debug_snapshot(self, page: object, label: str) -> None:
-        """Save a screenshot and print DOM element counts to stderr."""
-        import sys
-
-        page = cast(Any, page)
-        path = f"debug_{label}.png"
-        await page.screenshot(path=path, full_page=False)
-        print(f"[debug] screenshot saved: {path}", file=sys.stderr)
-        counts: dict = await page.evaluate("""() => ({
-            activity_divs: document.querySelectorAll('div[data-urn^="urn:li:activity"]').length,
-            feed_container: document.querySelectorAll('.scaffold-finite-scroll__content').length,
-            text_els: document.querySelectorAll('.update-components-text .break-words').length,
-            actor_els: document.querySelectorAll('.update-components-actor__name').length,
-        })""")
-        for k, v in counts.items():
-            print(f"[debug] {k}: {v}", file=sys.stderr)
-
-    async def _scroll_and_collect(self, page: object, scroll_count: int) -> list[dict]:
-        """Scroll the page and extract posts after each scroll.
-
-        LinkedIn uses virtual scrolling that unmounts off-screen elements,
-        so we must collect posts incrementally rather than at the end.
-        """
-        page = cast(Any, page)
-        collected: dict[str, dict] = {}
-
-        # Grab whatever is visible before scrolling
-        for p in await page.evaluate(_JS_EXTRACT_POSTS):
-            if p.get("id"):
-                collected[p["id"]] = p
-
-        for action in human_scroll_sequence(scroll_count):
-            delta_y = action["scroll_y"]
-            if action["direction"] == "up":
-                delta_y = -delta_y
-            await page.mouse.wheel(0, delta_y)
-            await asyncio.sleep(action["delay"])
-
-            for p in await page.evaluate(_JS_EXTRACT_POSTS):
-                if p.get("id") and p["id"] not in collected:
-                    collected[p["id"]] = p
-
-        # Final pause + extraction
-        await asyncio.sleep(random_delay(1.0, 2.0))
-        for p in await page.evaluate(_JS_EXTRACT_POSTS):
-            if p.get("id") and p["id"] not in collected:
-                collected[p["id"]] = p
-
-        return list(collected.values())
-
-    async def scrape_feed(self, scroll_count: int = 10, debug: bool = False) -> list[Post]:
+    async def scrape_feed(self, scroll_count: int = 10) -> list[Post]:
         """Scrape LinkedIn feed posts by scrolling and extracting from the DOM."""
-        import sys
-
         pw = import_module("playwright.async_api")
         playwright = await pw.async_playwright().start()
         self._playwright = playwright
@@ -151,21 +99,27 @@ class LinkedInScraper(AbstractScraper):
             page = await context.new_page()
             await page.goto(_LINKEDIN_FEED_URL, wait_until="domcontentloaded")
 
+            # Verify we weren't redirected to login
             current_url = page.url
-            if debug:
-                print(f"[debug] current url: {current_url}", file=sys.stderr)
-                await self._debug_snapshot(page, "before_scroll")
             if "/login" in current_url or "/checkpoint" in current_url:
                 await browser.close()
                 msg = f"Session expired or invalid — redirected to {current_url}"
                 raise RuntimeError(msg)
 
-            raw_posts = await self._scroll_and_collect(page, scroll_count)
+            # Scroll the feed to load posts
+            scroll_actions = human_scroll_sequence(scroll_count)
+            for action in scroll_actions:
+                delta_y = action["scroll_y"]
+                if action["direction"] == "up":
+                    delta_y = -delta_y
+                await page.mouse.wheel(0, delta_y)
+                await asyncio.sleep(action["delay"])
 
-            if debug:
-                await self._debug_snapshot(page, "after_scroll")
-                non_empty = sum(1 for p in raw_posts if p.get("post_text"))
-                print(f"[debug] raw_posts collected: {len(raw_posts)}, with text: {non_empty}", file=sys.stderr)
+            # Extra pause to let final content load
+            await asyncio.sleep(random_delay(1.0, 2.0))
+
+            # Extract posts from the DOM
+            raw_posts: list[dict] = await page.evaluate(_JS_EXTRACT_POSTS)
 
             await browser.close()
         finally:
