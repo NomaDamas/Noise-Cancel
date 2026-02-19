@@ -99,6 +99,7 @@ def login(
 def scrape(
     config_path: str | None = typer.Option(None, "--config"),
     verbose: bool = typer.Option(False, "--verbose"),
+    debug: bool = typer.Option(False, "--debug", help="Save screenshots and print DOM element counts"),
     limit: int | None = typer.Option(None, "--limit", help="Max posts to save (overrides config)"),
 ) -> None:
     """Scrape LinkedIn feed posts."""
@@ -148,7 +149,7 @@ def scrape(
         console.print(f"[cyan]Scraping with {scroll_count} scrolls...[/cyan]")
 
     try:
-        posts = asyncio.run(scraper.scrape_feed(scroll_count=scroll_count))
+        posts = asyncio.run(scraper.scrape_feed(scroll_count=scroll_count, debug=debug))
     except RuntimeError as exc:
         console.print(f"[red]Scrape failed: {exc}[/red]")
         update_run_log(conn, run_id, status="error", error_message=str(exc))
