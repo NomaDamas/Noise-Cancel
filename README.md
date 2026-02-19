@@ -97,26 +97,39 @@ A browser opens for manual LinkedIn login. Session cookies are encrypted (Fernet
 
 #### Running on a remote / headless server?
 
-`noise-cancel login` requires a GUI browser. If you're running on a server without a display, log in locally and transfer the session:
+`noise-cancel login` requires a GUI browser. On a server without a display, copy your `li_at` cookie directly from the browser.
 
-**On your local machine (with a display):**
+**Step 1 — Get your `li_at` cookie (local browser)**
 
-```bash
-noise-cancel login                          # Opens browser, log in
-noise-cancel session-export -o session.json # Decrypt session to portable JSON
-scp session.json user@your-server:~/        # Transfer to server
-rm session.json                             # Delete local copy
-```
+Open DevTools on any LinkedIn page:
+- Chrome/Edge: F12 → Application → Cookies → `https://www.linkedin.com` → find `li_at` → copy the Value
+- Firefox: F12 → Storage → Cookies → `https://www.linkedin.com` → find `li_at` → copy the Value
 
-**On the remote server:**
+**Step 2 — Import on the remote server**
 
 ```bash
-noise-cancel session-import ~/session.json  # Re-encrypt and save session
-rm ~/session.json                           # Delete the JSON file
-noise-cancel run                            # Good to go
+noise-cancel cookie-import --li-at "AQEDATxxxxxx..."
 ```
 
-> **Note**: The exported `session.json` contains your LinkedIn session cookies in plain text. Transfer it over a secure channel (SCP/SFTP) and delete it immediately after import. Sessions expire after `session_ttl_days` (default: 7 days) — repeat this process when scraping starts failing with a session-expired error.
+That's it. The cookie is encrypted and saved locally — no file transfer needed.
+
+> **Note**: The `li_at` cookie is your LinkedIn auth token. Keep it secret. It expires when you log out of LinkedIn or after ~1 year; if scraping starts failing, repeat this step.
+
+**Alternative: full session transfer via file**
+
+If `cookie-import` doesn't work (e.g. LinkedIn asks for 2FA), you can transfer the full Playwright session instead:
+
+```bash
+# Local machine
+noise-cancel login
+noise-cancel session-export -o session.json
+scp session.json user@your-server:~/
+rm session.json
+
+# Remote server
+noise-cancel session-import ~/session.json
+rm ~/session.json
+```
 
 ### 5. Run
 
@@ -149,6 +162,7 @@ That's it. "Read" posts arrive in your Slack channel with author, preview, confi
 | `noise-cancel stats` | Show classification statistics |
 | `noise-cancel session-export` | Export session to a portable JSON file (for headless/remote servers) |
 | `noise-cancel session-import <file>` | Import session from a JSON file exported by `session-export` |
+| `noise-cancel cookie-import --li-at VALUE` | Build session directly from raw `li_at` cookie (simplest for remote servers) |
 
 **Common flags**: `--config PATH`, `--verbose`, `--dry-run`, `--limit N`
 
