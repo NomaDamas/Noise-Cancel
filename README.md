@@ -115,22 +115,6 @@ That's it. The cookie is encrypted and saved locally — no file transfer needed
 
 > **Note**: The `li_at` cookie is your LinkedIn auth token. Keep it secret. It expires when you log out of LinkedIn or after ~1 year; if scraping starts failing, repeat this step.
 
-**Alternative: full session transfer via file**
-
-If `cookie-import` doesn't work (e.g. LinkedIn asks for 2FA), you can transfer the full Playwright session instead:
-
-```bash
-# Local machine
-noise-cancel login
-noise-cancel session-export -o session.json
-scp session.json user@your-server:~/
-rm session.json
-
-# Remote server
-noise-cancel session-import ~/session.json
-rm ~/session.json
-```
-
 ### 5. Run
 
 ```bash
@@ -160,9 +144,7 @@ That's it. "Read" posts arrive in your Slack channel with author, preview, confi
 | `noise-cancel deliver` | Deliver classified posts to Slack |
 | `noise-cancel logs` | Show run history |
 | `noise-cancel stats` | Show classification statistics |
-| `noise-cancel session-export` | Export session to a portable JSON file (for headless/remote servers) |
-| `noise-cancel session-import <file>` | Import session from a JSON file exported by `session-export` |
-| `noise-cancel cookie-import --li-at VALUE` | Build session directly from raw `li_at` cookie (simplest for remote servers) |
+| `noise-cancel cookie-import --li-at VALUE` | Build session directly from raw `li_at` cookie (for headless/remote servers) |
 
 **Common flags**: `--config PATH`, `--verbose`, `--dry-run`, `--limit N`
 
