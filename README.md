@@ -176,7 +176,7 @@ That's it. "Read" posts arrive in your Slack channel with author, preview, confi
 
 ### Logs command examples
 
-`noise-cancel logs` shows run history from SQLite with per-run counters (`scraped`, `classified`, `delivered`), status, timestamps, duration, and error message.
+`noise-cancel logs` shows run history from SQLite with per-run counters (`scraped`, `classified`, `delivered`), status, start time, and error message.
 
 ```bash
 # Most recent 10 runs

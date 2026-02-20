@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
 from pathlib import Path
 
 import typer
@@ -28,39 +27,28 @@ def _get_db(config: AppConfig):
     return conn
 
 
-def _parse_datetime(value: str | None) -> datetime | None:
-    if not value:
+def _metric_value(run_type: str, metric: str, value: int) -> int | None:
+    applicable_metrics = {
+        "scrape": {"posts_scraped"},
+        "classify": {"posts_classified"},
+        "deliver": {"posts_delivered"},
+        "pipeline": {"posts_scraped", "posts_classified", "posts_delivered"},
+    }
+    if metric not in applicable_metrics.get(run_type, set()):
         return None
-
-    normalized = value.replace("Z", "+00:00")
-    try:
-        return datetime.fromisoformat(normalized)
-    except ValueError:
-        try:
-            return datetime.fromisoformat(normalized.replace(" ", "T"))
-        except ValueError:
-            return None
-
-
-def _duration_seconds(started_at: str | None, finished_at: str | None) -> int | None:
-    started_dt = _parse_datetime(started_at)
-    finished_dt = _parse_datetime(finished_at)
-    if started_dt is None or finished_dt is None:
-        return None
-    return int((finished_dt - started_dt).total_seconds())
+    return value
 
 
 def _run_log_view(row: dict) -> dict:
+    run_type = row["run_type"]
     return {
         "run_id": row["id"],
-        "run_type": row["run_type"],
+        "run_type": run_type,
         "status": row["status"],
         "started_at": row["started_at"],
-        "finished_at": row["finished_at"],
-        "duration_s": _duration_seconds(row["started_at"], row["finished_at"]),
-        "posts_scraped": row["posts_scraped"],
-        "posts_classified": row["posts_classified"],
-        "posts_delivered": row["posts_delivered"],
+        "posts_scraped": _metric_value(run_type, "posts_scraped", row["posts_scraped"]),
+        "posts_classified": _metric_value(run_type, "posts_classified", row["posts_classified"]),
+        "posts_delivered": _metric_value(run_type, "posts_delivered", row["posts_delivered"]),
         "error_message": row["error_message"],
     }
 
@@ -423,8 +411,6 @@ def logs(
     table.add_column("run_type")
     table.add_column("status")
     table.add_column("started_at")
-    table.add_column("finished_at")
-    table.add_column("duration_s", justify="right")
     table.add_column("scraped", justify="right")
     table.add_column("classified", justify="right")
     table.add_column("delivered", justify="right")
@@ -436,11 +422,9 @@ def logs(
             row["run_type"],
             row["status"],
             row["started_at"] or "-",
-            row["finished_at"] or "-",
-            str(row["duration_s"]) if row["duration_s"] is not None else "-",
-            str(row["posts_scraped"]),
-            str(row["posts_classified"]),
-            str(row["posts_delivered"]),
+            str(row["posts_scraped"]) if row["posts_scraped"] is not None else "-",
+            str(row["posts_classified"]) if row["posts_classified"] is not None else "-",
+            str(row["posts_delivered"]) if row["posts_delivered"] is not None else "-",
             row["error_message"] or "-",
         )
 

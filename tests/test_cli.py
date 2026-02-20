@@ -615,7 +615,7 @@ class TestLogsCommand:
         assert len(payload) == 1
         assert payload[0]["run_id"] == "run-err"
 
-    def test_logs_json_output_includes_duration(self, tmp_path: Path):
+    def test_logs_json_output_omits_finished_and_duration(self, tmp_path: Path):
         from noise_cancel.database import apply_migrations, get_connection
 
         config_path, data_dir = _seed_db(tmp_path)
@@ -638,7 +638,37 @@ class TestLogsCommand:
         payload = json.loads(result.output)
         assert len(payload) == 1
         assert payload[0]["run_id"] == "run-1"
-        assert payload[0]["duration_s"] == 30
+        assert payload[0]["started_at"] == "2025-01-01T00:00:00Z"
+        assert "finished_at" not in payload[0]
+        assert "duration_s" not in payload[0]
+
+    def test_logs_json_non_applicable_counts_are_null(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        _insert_run_log(
+            conn,
+            run_id="run-c",
+            run_type="classify",
+            started_at="2025-01-01T00:00:00Z",
+            status="completed",
+            posts_scraped=99,
+            posts_classified=2,
+            posts_delivered=99,
+        )
+        conn.close()
+
+        result = runner.invoke(app, ["logs", "--config", str(config_path), "--json"])
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert len(payload) == 1
+        assert payload[0]["run_type"] == "classify"
+        assert payload[0]["posts_classified"] == 2
+        assert payload[0]["posts_scraped"] is None
+        assert payload[0]["posts_delivered"] is None
 
     def test_logs_handles_empty_history(self, tmp_path: Path):
         from noise_cancel.database import apply_migrations, get_connection
