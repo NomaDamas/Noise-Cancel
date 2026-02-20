@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.table import Table
 
 from noise_cancel.config import AppConfig, default_config_path, generate_default_config, load_config
 from noise_cancel.database import apply_migrations, get_connection
@@ -23,6 +25,32 @@ def _get_db(config: AppConfig):
     conn = get_connection(str(db_path))
     apply_migrations(conn)
     return conn
+
+
+def _metric_value(run_type: str, metric: str, value: int) -> int | None:
+    applicable_metrics = {
+        "scrape": {"posts_scraped"},
+        "classify": {"posts_classified"},
+        "deliver": {"posts_delivered"},
+        "pipeline": {"posts_scraped", "posts_classified", "posts_delivered"},
+    }
+    if metric not in applicable_metrics.get(run_type, set()):
+        return None
+    return value
+
+
+def _run_log_view(row: dict) -> dict:
+    run_type = row["run_type"]
+    return {
+        "run_id": row["id"],
+        "run_type": run_type,
+        "status": row["status"],
+        "started_at": row["started_at"],
+        "posts_scraped": _metric_value(run_type, "posts_scraped", row["posts_scraped"]),
+        "posts_classified": _metric_value(run_type, "posts_classified", row["posts_classified"]),
+        "posts_delivered": _metric_value(run_type, "posts_delivered", row["posts_delivered"]),
+        "error_message": row["error_message"],
+    }
 
 
 @app.command()
@@ -358,9 +386,49 @@ def run(
 def logs(
     config_path: str | None = typer.Option(None, "--config"),
     limit: int = typer.Option(20, "--limit"),
+    run_type: str | None = typer.Option(None, "--run-type"),
+    status: str | None = typer.Option(None, "--status"),
+    as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Show filtering logs."""
-    console.print("[yellow]Logs command - not yet implemented[/yellow]")
+    from noise_cancel.logger.repository import get_run_logs
+
+    cfg = _get_config(config_path)
+    conn = _get_db(cfg)
+
+    rows = get_run_logs(conn, limit=limit, run_type=run_type, status=status)
+    if not rows:
+        console.print("No run logs found.")
+        return
+
+    logs_payload = [_run_log_view(row) for row in rows]
+    if as_json:
+        typer.echo(json.dumps(logs_payload, indent=2))
+        return
+
+    table = Table(title="Run Logs")
+    table.add_column("run_id")
+    table.add_column("run_type")
+    table.add_column("status")
+    table.add_column("started_at")
+    table.add_column("scraped", justify="right")
+    table.add_column("classified", justify="right")
+    table.add_column("delivered", justify="right")
+    table.add_column("error")
+
+    for row in logs_payload:
+        table.add_row(
+            row["run_id"],
+            row["run_type"],
+            row["status"],
+            row["started_at"] or "-",
+            str(row["posts_scraped"]) if row["posts_scraped"] is not None else "-",
+            str(row["posts_classified"]) if row["posts_classified"] is not None else "-",
+            str(row["posts_delivered"]) if row["posts_delivered"] is not None else "-",
+            row["error_message"] or "-",
+        )
+
+    console.print(table)
 
 
 @app.command()

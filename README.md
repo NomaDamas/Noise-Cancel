@@ -174,6 +174,21 @@ That's it. "Read" posts arrive in your Slack channel with author, preview, confi
 
 **Common flags**: `--config PATH`, `--verbose`, `--dry-run`, `--limit N`
 
+### Logs command examples
+
+`noise-cancel logs` shows run history from SQLite with per-run counters (`scraped`, `classified`, `delivered`), status, start time, and error message.
+
+```bash
+# Most recent 10 runs
+noise-cancel logs --limit 10
+
+# Only failed scrape runs
+noise-cancel logs --run-type scrape --status error
+
+# JSON output for automation
+noise-cancel logs --json
+```
+
 ## Configuration
 
 ### Config file location

@@ -13,6 +13,7 @@ from noise_cancel.logger.metrics import (
 from noise_cancel.logger.repository import (
     get_classifications,
     get_posts,
+    get_run_logs,
     get_unclassified_posts,
     get_undelivered_classifications,
     insert_classification,
@@ -192,6 +193,26 @@ class TestRunLogs:
         assert row["status"] == "completed"
         assert row["posts_scraped"] == 10
         assert row["finished_at"] == "2025-01-01T01:00:00Z"
+
+    def test_get_run_logs_orders_newest_first_and_respects_limit(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, RunLog(id="run-1", run_type="scrape", started_at="2025-01-01T00:00:00Z"))
+        insert_run_log(db_connection, RunLog(id="run-2", run_type="classify", started_at="2025-01-02T00:00:00Z"))
+        insert_run_log(db_connection, RunLog(id="run-3", run_type="deliver", started_at="2025-01-03T00:00:00Z"))
+
+        rows = get_run_logs(db_connection, limit=2)
+        assert [row["id"] for row in rows] == ["run-3", "run-2"]
+
+    def test_get_run_logs_filters_by_run_type_and_status(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, RunLog(id="run-1", run_type="scrape", started_at="2025-01-01T00:00:00Z"))
+        insert_run_log(db_connection, RunLog(id="run-2", run_type="classify", started_at="2025-01-02T00:00:00Z"))
+        insert_run_log(db_connection, RunLog(id="run-3", run_type="scrape", started_at="2025-01-03T00:00:00Z"))
+        update_run_log(db_connection, "run-1", status="completed")
+        update_run_log(db_connection, "run-2", status="error")
+        update_run_log(db_connection, "run-3", status="error")
+
+        rows = get_run_logs(db_connection, run_type="scrape", status="error")
+        assert len(rows) == 1
+        assert rows[0]["id"] == "run-3"
 
 
 # ---------------------------------------------------------------------------
