@@ -53,6 +53,124 @@ def _run_log_view(row: dict) -> dict:
     }
 
 
+def _truncate_preview(value: str | None, max_len: int) -> str:
+    if value is None:
+        return "-"
+    normalized = " ".join(value.split())
+    if not normalized:
+        return "-"
+    if len(normalized) <= max_len:
+        return normalized
+    if max_len <= 3:
+        return normalized[:max_len]
+    return normalized[: max_len - 3] + "..."
+
+
+def _build_stats_payload(conn, run_id: str | None, limit_posts: int) -> dict | None:
+    from noise_cancel.logger.metrics import (
+        get_category_counts_for_window,
+        get_classification_count_for_window,
+        get_classification_details_for_window,
+        get_classify_run_by_id,
+        get_latest_classify_run,
+        get_next_classify_run_started_at,
+    )
+
+    if run_id is not None:
+        target_run = get_classify_run_by_id(conn, run_id)
+        if target_run is None:
+            raise ValueError(run_id)
+    else:
+        target_run = get_latest_classify_run(conn)
+        if target_run is None:
+            return None
+
+    window_end = get_next_classify_run_started_at(conn, target_run["started_at"], target_run["id"])
+    inferred_total = get_classification_count_for_window(conn, target_run["started_at"], window_end)
+    category_counts = get_category_counts_for_window(conn, target_run["started_at"], window_end)
+    detail_rows = get_classification_details_for_window(
+        conn,
+        target_run["started_at"],
+        window_end,
+        limit=limit_posts,
+    )
+
+    detail_payload = [
+        {
+            "classification_id": row["classification_id"],
+            "post_id": row["post_id"],
+            "author_name": row["author_name"],
+            "category": row["category"],
+            "classified_at": row["classified_at"],
+            "post_preview": _truncate_preview(row["post_text"], 180),
+            "reasoning_preview": _truncate_preview(row["reasoning"], 160),
+        }
+        for row in detail_rows
+    ]
+
+    logged_count = int(target_run.get("posts_classified", 0))
+    warning: str | None = None
+    if inferred_total != logged_count:
+        warning = (
+            "Count mismatch: run log posts_classified="
+            f"{logged_count}, inferred rows={inferred_total} (timestamp-window inference)."
+        )
+
+    return {
+        "run": {
+            "run_id": target_run["id"],
+            "started_at": target_run["started_at"],
+            "status": target_run["status"],
+            "logged_posts_classified": logged_count,
+            "inferred_total": inferred_total,
+            "window_end": window_end,
+        },
+        "category_counts": category_counts,
+        "details": detail_payload,
+        "warning": warning,
+    }
+
+
+def _render_stats_output(payload: dict, limit_posts: int) -> None:
+    console.print(f"[cyan]Classify Run:[/cyan] {payload['run']['run_id']}")
+    console.print(f"[cyan]Started At:[/cyan] {payload['run']['started_at']}")
+    console.print(f"[cyan]Status:[/cyan] {payload['run']['status']}")
+    console.print(f"[cyan]Logged Classified:[/cyan] {payload['run']['logged_posts_classified']}")
+    console.print(f"[cyan]Inferred Rows:[/cyan] {payload['run']['inferred_total']}")
+
+    if payload["warning"] is not None:
+        console.print(f"[yellow]{payload['warning']}[/yellow]")
+
+    if payload["category_counts"]:
+        category_table = Table(title="Category Counts")
+        category_table.add_column("category")
+        category_table.add_column("count", justify="right")
+        for category, count in payload["category_counts"].items():
+            category_table.add_row(category, str(count))
+        console.print(category_table)
+    else:
+        console.print("No inferred classifications for this run.")
+
+    if payload["details"]:
+        detail_table = Table(title=f"Details (up to {limit_posts} rows)")
+        detail_table.add_column("post_id")
+        detail_table.add_column("author")
+        detail_table.add_column("category")
+        detail_table.add_column("post_preview")
+        detail_table.add_column("reasoning_preview")
+        for row in payload["details"]:
+            detail_table.add_row(
+                row["post_id"],
+                row["author_name"] or "-",
+                row["category"],
+                row["post_preview"],
+                row["reasoning_preview"],
+            )
+        console.print(detail_table)
+    else:
+        console.print("No classification details found for this run.")
+
+
 @app.command()
 def init(
     config_path: str | None = typer.Option(None, "--config", help="Path to write config YAML"),
@@ -434,6 +552,26 @@ def logs(
 @app.command()
 def stats(
     config_path: str | None = typer.Option(None, "--config"),
+    run_id: str | None = typer.Option(None, "--run-id", help="Specific classify run ID to inspect"),
+    limit_posts: int = typer.Option(50, "--limit-posts", min=1, help="Max detailed posts to show"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
-    """Show classification accuracy and statistics."""
-    console.print("[yellow]Stats command - not yet implemented[/yellow]")
+    """Show classify-run debugging statistics."""
+    cfg = _get_config(config_path)
+    conn = _get_db(cfg)
+
+    try:
+        payload = _build_stats_payload(conn, run_id, limit_posts)
+    except ValueError as exc:
+        console.print(f"[red]Classify run not found: {exc}[/red]")
+        raise typer.Exit(1) from None
+
+    if payload is None:
+        console.print("No classify runs found.")
+        return
+
+    if as_json:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    _render_stats_output(payload, limit_posts)

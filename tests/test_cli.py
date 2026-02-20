@@ -260,11 +260,12 @@ def _insert_classification(
     cls_id: str = "c1",
     post_id: str = "p1",
     category: str = "Read",
+    confidence: float = 0.9,
+    reasoning: str = "test reason",
+    classified_at: str = "2025-01-01T00:00:00",
     delivered: int = 0,
 ) -> None:
     """Insert a minimal classification row via raw SQL."""
-    import json
-
     conn.execute(
         """INSERT INTO classifications
            (id, post_id, category, confidence, reasoning, applied_rules,
@@ -274,11 +275,11 @@ def _insert_classification(
             cls_id,
             post_id,
             category,
-            0.9,
-            "test reason",
+            confidence,
+            reasoning,
             json.dumps([]),
             "test-model",
-            "2025-01-01T00:00:00",
+            classified_at,
             delivered,
             None,
         ),
@@ -682,6 +683,140 @@ class TestLogsCommand:
 
         assert result.exit_code == 0
         assert "No run logs found." in result.output
+
+
+# ===========================================================================
+# Stats command tests
+# ===========================================================================
+
+
+class TestStatsCommand:
+    def test_stats_defaults_to_latest_classify_run(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+
+        _insert_run_log(conn, "run-old", "classify", started_at="2025-01-01T10:00:00", posts_classified=1)
+        _insert_run_log(conn, "run-new", "classify", started_at="2025-01-01T11:00:00", posts_classified=1)
+        _insert_post(conn, "p1", "Alice", "old post")
+        _insert_post(conn, "p2", "Bob", "new post")
+        _insert_classification(conn, "c1", "p1", classified_at="2025-01-01T10:30:00")
+        _insert_classification(conn, "c2", "p2", classified_at="2025-01-01T11:30:00")
+        conn.close()
+
+        result = runner.invoke(app, ["stats", "--config", str(config_path), "--json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["run"]["run_id"] == "run-new"
+        assert len(payload["details"]) == 1
+        assert payload["details"][0]["post_id"] == "p2"
+
+    def test_stats_supports_run_id_filter(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+
+        _insert_run_log(conn, "run-a", "classify", started_at="2025-01-01T10:00:00", posts_classified=1)
+        _insert_run_log(conn, "run-b", "classify", started_at="2025-01-01T11:00:00", posts_classified=1)
+        _insert_post(conn, "p1", "Alice", "post a")
+        _insert_post(conn, "p2", "Bob", "post b")
+        _insert_classification(conn, "c1", "p1", classified_at="2025-01-01T10:30:00")
+        _insert_classification(conn, "c2", "p2", classified_at="2025-01-01T11:30:00")
+        conn.close()
+
+        result = runner.invoke(app, ["stats", "--config", str(config_path), "--run-id", "run-a", "--json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["run"]["run_id"] == "run-a"
+        assert len(payload["details"]) == 1
+        assert payload["details"][0]["post_id"] == "p1"
+
+    def test_stats_fails_for_invalid_run_id(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        conn.close()
+
+        result = runner.invoke(app, ["stats", "--config", str(config_path), "--run-id", "missing"])
+        assert result.exit_code == 1
+        assert "Classify run not found" in result.output
+
+    def test_stats_respects_limit_posts(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+
+        _insert_run_log(conn, "run-one", "classify", started_at="2025-01-01T10:00:00", posts_classified=2)
+        _insert_post(conn, "p1", "Alice", "post one")
+        _insert_post(conn, "p2", "Bob", "post two")
+        _insert_classification(conn, "c1", "p1", classified_at="2025-01-01T10:30:00")
+        _insert_classification(conn, "c2", "p2", classified_at="2025-01-01T10:31:00")
+        conn.close()
+
+        result = runner.invoke(app, ["stats", "--config", str(config_path), "--limit-posts", "1", "--json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["run"]["inferred_total"] == 2
+        assert len(payload["details"]) == 1
+
+    def test_stats_json_includes_warning_on_count_mismatch(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+
+        _insert_run_log(conn, "run-one", "classify", started_at="2025-01-01T10:00:00", posts_classified=2)
+        _insert_post(conn, "p1", "Alice", "post one")
+        _insert_classification(conn, "c1", "p1", classified_at="2025-01-01T10:30:00")
+        conn.close()
+
+        result = runner.invoke(app, ["stats", "--config", str(config_path), "--json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["warning"] is not None
+        assert "mismatch" in payload["warning"].lower()
+
+    def test_stats_truncates_post_and_reasoning_preview(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+
+        _insert_run_log(conn, "run-one", "classify", started_at="2025-01-01T10:00:00", posts_classified=1)
+        _insert_post(conn, "p1", "Alice", "x" * 220)
+        _insert_classification(conn, "c1", "p1", reasoning="y" * 220, classified_at="2025-01-01T10:30:00")
+        conn.close()
+
+        result = runner.invoke(app, ["stats", "--config", str(config_path), "--json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        row = payload["details"][0]
+        assert len(row["post_preview"]) <= 180
+        assert len(row["reasoning_preview"]) <= 160
+        assert row["post_preview"].endswith("...")
+        assert row["reasoning_preview"].endswith("...")
+
+    def test_stats_handles_no_classify_runs(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        conn.close()
+
+        result = runner.invoke(app, ["stats", "--config", str(config_path)])
+        assert result.exit_code == 0
+        assert "No classify runs found." in result.output
 
 
 # ===========================================================================

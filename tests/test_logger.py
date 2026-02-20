@@ -7,7 +7,13 @@ from pathlib import Path
 
 from noise_cancel.logger.export import export_csv, export_json
 from noise_cancel.logger.metrics import (
+    get_category_counts_for_window,
+    get_classification_count_for_window,
+    get_classification_details_for_window,
     get_classification_stats,
+    get_classify_run_by_id,
+    get_latest_classify_run,
+    get_next_classify_run_started_at,
     get_run_history,
 )
 from noise_cancel.logger.repository import (
@@ -303,3 +309,46 @@ class TestMetrics:
     def test_classification_stats_empty(self, db_connection: sqlite3.Connection) -> None:
         stats = get_classification_stats(db_connection)
         assert stats == {}
+
+    def test_get_latest_classify_run(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(
+            db_connection,
+            RunLog(id="run-1", run_type="classify", started_at="2025-01-01T10:00:00"),
+        )
+        insert_run_log(
+            db_connection,
+            RunLog(id="run-2", run_type="classify", started_at="2025-01-01T11:00:00"),
+        )
+
+        row = get_latest_classify_run(db_connection)
+        assert row is not None
+        assert row["id"] == "run-2"
+
+    def test_windowed_classification_helpers(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, RunLog(id="run-a", run_type="classify", started_at="2025-01-01T10:00:00"))
+        insert_run_log(db_connection, RunLog(id="run-b", run_type="classify", started_at="2025-01-01T11:00:00"))
+        insert_run_log(db_connection, RunLog(id="seed", run_type="scrape"))
+        insert_post(db_connection, _make_post("p1", run_id="run-a"))
+        insert_post(db_connection, _make_post("p2", run_id="run-b"))
+        insert_classification(
+            db_connection,
+            _make_classification("c1", "p1", "Skip").model_copy(update={"classified_at": "2025-01-01T10:30:00"}),
+        )
+        insert_classification(
+            db_connection,
+            _make_classification("c2", "p2", "Read").model_copy(update={"classified_at": "2025-01-01T11:30:00"}),
+        )
+
+        run_a = get_classify_run_by_id(db_connection, "run-a")
+        assert run_a is not None
+        boundary = get_next_classify_run_started_at(db_connection, run_a["started_at"], run_a["id"])
+        assert boundary == "2025-01-01T11:00:00"
+
+        rows = get_classification_details_for_window(db_connection, run_a["started_at"], boundary, limit=10)
+        assert len(rows) == 1
+        assert rows[0]["post_id"] == "p1"
+
+        count = get_classification_count_for_window(db_connection, run_a["started_at"], boundary)
+        assert count == 1
+        categories = get_category_counts_for_window(db_connection, run_a["started_at"], boundary)
+        assert categories == {"Skip": 1}
