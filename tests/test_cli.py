@@ -299,6 +299,7 @@ def _insert_run_log(
     posts_delivered: int = 0,
     error_message: str | None = None,
 ) -> None:
+    """Insert a run_log row via raw SQL for logs command testing."""
     conn.execute(
         """INSERT INTO run_logs
            (id, run_type, started_at, finished_at, status,
@@ -533,6 +534,155 @@ class TestDeliverCommand:
         result = runner.invoke(app, ["deliver", "--config", str(config_path)])
         assert result.exit_code == 0
         assert "No undelivered classifications" in result.output
+
+
+# ===========================================================================
+# Logs command tests
+# ===========================================================================
+
+
+class TestLogsCommand:
+    def test_logs_shows_run_history_table(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        _insert_run_log(
+            conn,
+            run_id="run-1",
+            run_type="scrape",
+            started_at="2025-01-01T00:00:00Z",
+            finished_at="2025-01-01T00:00:30Z",
+            status="completed",
+            posts_scraped=3,
+        )
+        conn.close()
+
+        result = runner.invoke(app, ["logs", "--config", str(config_path)])
+
+        assert result.exit_code == 0
+        assert "Run Logs" in result.output
+        assert "┏" in result.output
+
+    def test_logs_limit(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        _insert_run_log(conn, "run-old", "scrape", "2025-01-01T00:00:00Z")
+        _insert_run_log(conn, "run-new", "scrape", "2025-01-02T00:00:00Z")
+        conn.close()
+
+        result = runner.invoke(app, ["logs", "--config", str(config_path), "--limit", "1", "--json"])
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert len(payload) == 1
+        assert payload[0]["run_id"] == "run-new"
+
+    def test_logs_filters_by_run_type(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        _insert_run_log(conn, "run-scrape", "scrape", "2025-01-01T00:00:00Z")
+        _insert_run_log(conn, "run-classify", "classify", "2025-01-02T00:00:00Z")
+        conn.close()
+
+        result = runner.invoke(app, ["logs", "--config", str(config_path), "--run-type", "scrape", "--json"])
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert len(payload) == 1
+        assert payload[0]["run_id"] == "run-scrape"
+
+    def test_logs_filters_by_status(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        _insert_run_log(conn, "run-ok", "scrape", "2025-01-01T00:00:00Z", status="completed")
+        _insert_run_log(conn, "run-err", "scrape", "2025-01-02T00:00:00Z", status="error")
+        conn.close()
+
+        result = runner.invoke(app, ["logs", "--config", str(config_path), "--status", "error", "--json"])
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert len(payload) == 1
+        assert payload[0]["run_id"] == "run-err"
+
+    def test_logs_json_output_omits_finished_and_duration(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        _insert_run_log(
+            conn,
+            run_id="run-1",
+            run_type="scrape",
+            started_at="2025-01-01T00:00:00Z",
+            finished_at="2025-01-01T00:00:30Z",
+            status="completed",
+            posts_scraped=1,
+        )
+        conn.close()
+
+        result = runner.invoke(app, ["logs", "--config", str(config_path), "--json"])
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert len(payload) == 1
+        assert payload[0]["run_id"] == "run-1"
+        assert payload[0]["started_at"] == "2025-01-01T00:00:00Z"
+        assert "finished_at" not in payload[0]
+        assert "duration_s" not in payload[0]
+
+    def test_logs_json_non_applicable_counts_are_null(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        _insert_run_log(
+            conn,
+            run_id="run-c",
+            run_type="classify",
+            started_at="2025-01-01T00:00:00Z",
+            status="completed",
+            posts_scraped=99,
+            posts_classified=2,
+            posts_delivered=99,
+        )
+        conn.close()
+
+        result = runner.invoke(app, ["logs", "--config", str(config_path), "--json"])
+
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert len(payload) == 1
+        assert payload[0]["run_type"] == "classify"
+        assert payload[0]["posts_classified"] == 2
+        assert payload[0]["posts_scraped"] is None
+        assert payload[0]["posts_delivered"] is None
+
+    def test_logs_handles_empty_history(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        conn.close()
+
+        result = runner.invoke(app, ["logs", "--config", str(config_path)])
+
+        assert result.exit_code == 0
+        assert "No run logs found." in result.output
 
 
 # ===========================================================================
