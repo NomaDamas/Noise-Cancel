@@ -174,6 +174,23 @@ That's it. "Read" posts arrive in your Slack channel with author, preview, confi
 
 **Common flags**: `--config PATH`, `--verbose`, `--dry-run`, `--limit N`
 
+### Stats command examples
+
+`noise-cancel stats` is a classify-run debugging view that shows category counts and per-post previews (post text + reasoning) for a selected classification run.
+
+```bash
+# Latest classify run
+noise-cancel stats
+
+# Specific classify run ID
+noise-cancel stats --run-id <run_id>
+
+# Limit detail rows and emit JSON
+noise-cancel stats --limit-posts 20 --json
+```
+
+`stats` uses classification timestamp windows to infer rows for a classify run (without schema changes). If inferred row count differs from `run_logs.posts_classified`, it prints a warning.
+
 ## Configuration
 
 ### Config file location
