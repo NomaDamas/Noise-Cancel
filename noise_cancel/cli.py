@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime
 from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.table import Table
 
 from noise_cancel.config import AppConfig, default_config_path, generate_default_config, load_config
 from noise_cancel.database import apply_migrations, get_connection
@@ -23,6 +26,43 @@ def _get_db(config: AppConfig):
     conn = get_connection(str(db_path))
     apply_migrations(conn)
     return conn
+
+
+def _parse_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+
+    normalized = value.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        try:
+            return datetime.fromisoformat(normalized.replace(" ", "T"))
+        except ValueError:
+            return None
+
+
+def _duration_seconds(started_at: str | None, finished_at: str | None) -> int | None:
+    started_dt = _parse_datetime(started_at)
+    finished_dt = _parse_datetime(finished_at)
+    if started_dt is None or finished_dt is None:
+        return None
+    return int((finished_dt - started_dt).total_seconds())
+
+
+def _run_log_view(row: dict) -> dict:
+    return {
+        "run_id": row["id"],
+        "run_type": row["run_type"],
+        "status": row["status"],
+        "started_at": row["started_at"],
+        "finished_at": row["finished_at"],
+        "duration_s": _duration_seconds(row["started_at"], row["finished_at"]),
+        "posts_scraped": row["posts_scraped"],
+        "posts_classified": row["posts_classified"],
+        "posts_delivered": row["posts_delivered"],
+        "error_message": row["error_message"],
+    }
 
 
 @app.command()
@@ -358,9 +398,53 @@ def run(
 def logs(
     config_path: str | None = typer.Option(None, "--config"),
     limit: int = typer.Option(20, "--limit"),
+    run_type: str | None = typer.Option(None, "--run-type"),
+    status: str | None = typer.Option(None, "--status"),
+    as_json: bool = typer.Option(False, "--json"),
 ) -> None:
     """Show filtering logs."""
-    console.print("[yellow]Logs command - not yet implemented[/yellow]")
+    from noise_cancel.logger.repository import get_run_logs
+
+    cfg = _get_config(config_path)
+    conn = _get_db(cfg)
+
+    rows = get_run_logs(conn, limit=limit, run_type=run_type, status=status)
+    if not rows:
+        console.print("No run logs found.")
+        return
+
+    logs_payload = [_run_log_view(row) for row in rows]
+    if as_json:
+        typer.echo(json.dumps(logs_payload, indent=2))
+        return
+
+    table = Table(title="Run Logs")
+    table.add_column("run_id")
+    table.add_column("run_type")
+    table.add_column("status")
+    table.add_column("started_at")
+    table.add_column("finished_at")
+    table.add_column("duration_s", justify="right")
+    table.add_column("scraped", justify="right")
+    table.add_column("classified", justify="right")
+    table.add_column("delivered", justify="right")
+    table.add_column("error")
+
+    for row in logs_payload:
+        table.add_row(
+            row["run_id"],
+            row["run_type"],
+            row["status"],
+            row["started_at"] or "-",
+            row["finished_at"] or "-",
+            str(row["duration_s"]) if row["duration_s"] is not None else "-",
+            str(row["posts_scraped"]),
+            str(row["posts_classified"]),
+            str(row["posts_delivered"]),
+            row["error_message"] or "-",
+        )
+
+    console.print(table)
 
 
 @app.command()

@@ -103,6 +103,32 @@ def update_run_log(conn: sqlite3.Connection, run_id: str, **kwargs: object) -> N
     conn.commit()
 
 
+def get_run_logs(
+    conn: sqlite3.Connection,
+    limit: int = 20,
+    run_type: str | None = None,
+    status: str | None = None,
+) -> list[dict]:
+    sql = "SELECT * FROM run_logs"
+    where_clauses: list[str] = []
+    params: list[object] = []
+
+    if run_type is not None:
+        where_clauses.append("run_type = ?")
+        params.append(run_type)
+    if status is not None:
+        where_clauses.append("status = ?")
+        params.append(status)
+
+    if where_clauses:
+        sql += " WHERE " + " AND ".join(where_clauses)
+
+    sql += " ORDER BY started_at DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_post_by_id(conn: sqlite3.Connection, post_id: str) -> dict | None:
     row = conn.execute("SELECT * FROM posts WHERE id = ?", (post_id,)).fetchone()
     return dict(row) if row else None
