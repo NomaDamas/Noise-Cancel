@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from noise_cancel.config import AppConfig, load_config
 from noise_cancel.database import apply_migrations, get_connection
+from server.routers import router as api_router
 
 ASGIReceive = Callable[[], Awaitable[Any]]
 ASGISend = Callable[[Any], Awaitable[None]]
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
         )
     ]
     app = FastAPI(title="NoiseCancel API", lifespan=lifespan, middleware=middleware)
+    app.include_router(api_router)
     return app
 
 
