@@ -3,9 +3,13 @@ from __future__ import annotations
 import sqlite3
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
-from noise_cancel.logger.repository import count_posts_for_feed, get_posts_for_feed
+from noise_cancel.logger.repository import (
+    count_posts_for_feed,
+    get_post_for_feed_by_classification_id,
+    get_posts_for_feed,
+)
 from server.dependencies import get_db
 from server.schemas import PostListResponse, PostResponse
 
@@ -31,3 +35,15 @@ def get_posts(
     posts = [PostResponse.model_validate(row) for row in rows]
     has_more = total > (offset + limit)
     return PostListResponse(posts=posts, total=total, has_more=has_more)
+
+
+@router.get("/posts/{classification_id}", response_model=PostResponse)
+def get_post_detail(
+    classification_id: str,
+    db: Annotated[sqlite3.Connection, Depends(get_db)],
+) -> PostResponse:
+    row = get_post_for_feed_by_classification_id(conn=db, classification_id=classification_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    return PostResponse.model_validate(row)

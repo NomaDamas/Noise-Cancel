@@ -206,3 +206,29 @@ def test_get_posts_pagination_computes_has_more(tmp_path: Path, monkeypatch) -> 
         assert second_payload["total"] == 3
         assert second_payload["has_more"] is False
         assert [post["classification_id"] for post in second_payload["posts"]] == ["cls-5"]
+
+
+def test_get_post_detail_returns_post_for_valid_classification_id(tmp_path: Path, monkeypatch) -> None:
+    client, conn = _build_client(tmp_path, monkeypatch)
+    with client:
+        _seed_feed_data(conn)
+
+        response = client.get("/api/posts/cls-2")
+        assert response.status_code == 200
+
+        payload = response.json()
+        assert payload["classification_id"] == "cls-2"
+        assert payload["id"] == "post-2"
+        assert payload["category"] == "Read"
+        assert payload["summary"] == "Summary for cls-2"
+        assert payload["swipe_status"] == "pending"
+
+
+def test_get_post_detail_returns_404_for_missing_classification_id(tmp_path: Path, monkeypatch) -> None:
+    client, conn = _build_client(tmp_path, monkeypatch)
+    with client:
+        _seed_feed_data(conn)
+
+        response = client.get("/api/posts/missing")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Not found"}

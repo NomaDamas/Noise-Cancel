@@ -201,6 +201,32 @@ def get_posts_for_feed(
     return [dict(r) for r in rows]
 
 
+def get_post_for_feed_by_classification_id(
+    conn: sqlite3.Connection,
+    classification_id: str,
+) -> dict | None:
+    row = conn.execute(
+        """SELECT
+               p.id AS id,
+               c.id AS classification_id,
+               p.author_name,
+               p.author_url,
+               p.post_url,
+               p.post_text,
+               c.summary,
+               c.category,
+               c.confidence,
+               c.reasoning,
+               c.classified_at,
+               c.swipe_status
+           FROM classifications c
+           INNER JOIN posts p ON p.id = c.post_id
+           WHERE c.id = ?""",
+        (classification_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
 def count_posts_for_feed(
     conn: sqlite3.Connection,
     category: str = "Read",

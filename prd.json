@@ -75,7 +75,7 @@
         "REQ-025 `make check` and `make test` pass"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

@@ -17,3 +17,6 @@
 ## US-004 — PASS (2026-02-25T09:44:09Z)
 - Title: API response schemas
 - Attempts: 1
+## US-005 — PASS (2026-02-25T09:52:29Z)
+- Title: GET /api/posts feed endpoint
+- Attempts: 1
