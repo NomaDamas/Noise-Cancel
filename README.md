@@ -1,8 +1,5 @@
 # noise-cancel
 
-[![Release](https://img.shields.io/github/v/release/vkehfdl1/noise-cancel)](https://img.shields.io/github/v/release/vkehfdl1/noise-cancel)
-[![Build status](https://img.shields.io/github/actions/workflow/status/vkehfdl1/noise-cancel/main.yml?branch=main)](https://github.com/vkehfdl1/noise-cancel/actions/workflows/main.yml?query=branch%3Amain)
-[![License](https://img.shields.io/github/license/vkehfdl1/noise-cancel)](https://img.shields.io/github/license/vkehfdl1/noise-cancel)
 
 AI-powered LinkedIn feed noise filter. Scrape your feed, let Claude decide what's worth reading, and swipe through curated posts in a Tinder-style mobile app or get a digest in Slack.
 
