@@ -4,12 +4,16 @@
 [![Build status](https://img.shields.io/github/actions/workflow/status/vkehfdl1/noise-cancel/main.yml?branch=main)](https://github.com/vkehfdl1/noise-cancel/actions/workflows/main.yml?query=branch%3Amain)
 [![License](https://img.shields.io/github/license/vkehfdl1/noise-cancel)](https://img.shields.io/github/license/vkehfdl1/noise-cancel)
 
-AI-powered LinkedIn feed noise filter. Scrape your feed, let Claude decide what's worth reading, and get a curated digest in Slack.
+AI-powered LinkedIn feed noise filter. Scrape your feed, let Claude decide what's worth reading, and swipe through curated posts in a Tinder-style mobile app or get a digest in Slack.
 
 ```
-LinkedIn Feed  -->  Scraper  -->  Claude (Read / Skip)  -->  Slack
-              (Playwright)       (Sonnet 4.6)           (Webhook)
+LinkedIn Feed  -->  Scraper  -->  Claude (Read / Skip)  -->  Mobile App (swipe)
+              (Playwright)       (Sonnet 4.6)                 or Slack (webhook)
 ```
+
+Two delivery modes:
+- **Mobile App** (new) -- Flutter cross-platform app with Tinder-style swipe UI. Swipe left to archive + forward to webhook, swipe right to dismiss.
+- **Slack** -- Incoming webhook delivers classified posts to a Slack channel.
 
 ## Quick Start
 
@@ -321,6 +325,225 @@ delivery:
 - Incoming Webhooks work on the Slack Free plan.
 - Anyone with the webhook URL can post to your channel. Store it in `.env` or environment variables and **never commit it to git**.
 
+## REST API Server
+
+The server exposes a FastAPI REST API that the mobile app (or any client) uses to fetch and act on classified posts. It reuses the existing core library (`noise_cancel/`) for scraping, classification, and storage.
+
+### Start the server
+
+```bash
+make server    # uvicorn on port 8000, auto-reload
+```
+
+Swagger docs at `http://localhost:8000/docs`.
+
+### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/posts` | Paginated feed of classified posts for the swipe UI |
+| `GET` | `/api/posts/{classification_id}` | Single post detail |
+| `POST` | `/api/posts/{classification_id}/archive` | Swipe left -- mark as archived, returns post data for webhook |
+| `POST` | `/api/posts/{classification_id}/delete` | Swipe right -- mark as deleted (hidden forever) |
+| `POST` | `/api/pipeline/run` | Trigger scrape + classify pipeline (runs in background) |
+| `GET` | `/api/pipeline/status` | Latest pipeline run status |
+
+### GET /api/posts
+
+Fetches posts for the swipe UI. Only returns posts matching the given category and swipe status.
+
+```bash
+curl "http://localhost:8000/api/posts?category=Read&swipe_status=pending&limit=20&offset=0"
+```
+
+```json
+{
+  "posts": [
+    {
+      "id": "urn:li:activity:123",
+      "classification_id": "abc123",
+      "author_name": "Jane Doe",
+      "author_url": "https://linkedin.com/in/janedoe",
+      "post_url": "https://linkedin.com/feed/update/urn:li:activity:123",
+      "post_text": "Full post content...",
+      "summary": "AI-generated 2-3 sentence summary",
+      "category": "Read",
+      "confidence": 0.95,
+      "reasoning": "Contains valuable technical insights about...",
+      "classified_at": "2025-01-15T10:30:00+00:00",
+      "swipe_status": "pending"
+    }
+  ],
+  "total": 42,
+  "has_more": true
+}
+```
+
+| Query Param | Default | Description |
+|-------------|---------|-------------|
+| `category` | `Read` | Classification category filter |
+| `swipe_status` | `pending` | `pending`, `archived`, or `deleted` |
+| `limit` | `20` | Max posts per page |
+| `offset` | `0` | Pagination offset |
+
+### POST /api/posts/{id}/archive
+
+Archives a post (swipe left). Returns the full post data so the client can forward it to a webhook.
+
+```bash
+curl -X POST "http://localhost:8000/api/posts/abc123/archive"
+```
+
+```json
+{
+  "status": "archived",
+  "classification_id": "abc123",
+  "author_name": "Jane Doe",
+  "summary": "AI-generated summary...",
+  "post_url": "https://linkedin.com/feed/update/...",
+  "post_text": "Full post content...",
+  "category": "Read"
+}
+```
+
+### POST /api/posts/{id}/delete
+
+Deletes a post from the feed (swipe right). The post is never shown again.
+
+```bash
+curl -X POST "http://localhost:8000/api/posts/abc123/delete"
+```
+
+```json
+{
+  "status": "deleted",
+  "classification_id": "abc123"
+}
+```
+
+### POST /api/pipeline/run
+
+Triggers the scrape + classify pipeline as a background task. Returns immediately with a run ID.
+
+```bash
+curl -X POST "http://localhost:8000/api/pipeline/run" \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 50, "skip_scrape": false}'
+```
+
+```json
+{
+  "run_id": "a1b2c3d4",
+  "status": "accepted",
+  "message": "Pipeline run started"
+}
+```
+
+### GET /api/pipeline/status
+
+Returns the latest pipeline run status.
+
+```bash
+curl "http://localhost:8000/api/pipeline/status"
+```
+
+```json
+{
+  "run_id": "a1b2c3d4",
+  "run_type": "pipeline",
+  "started_at": "2025-01-15T10:00:00",
+  "finished_at": "2025-01-15T10:05:00",
+  "status": "completed",
+  "posts_scraped": 30,
+  "posts_classified": 30,
+  "posts_delivered": 0,
+  "error_message": null
+}
+```
+
+---
+
+## Mobile App (Flutter)
+
+A cross-platform (iOS + Android) app with a Tinder-style swipe interface for reviewing classified posts.
+
+### Install and run
+
+Requires [Flutter SDK](https://docs.flutter.dev/get-started/install) 3.5+.
+
+```bash
+cd app
+flutter pub get
+flutter run
+```
+
+### How it works
+
+1. The app connects to the NoiseCancel server (URL configured in Settings)
+2. Fetches posts classified as "Read" that haven't been swiped yet
+3. Displays posts as a card stack:
+   - **Author name** (bold, large)
+   - **AI-generated summary** (2-3 sentences)
+   - **"More"** button to expand full post text in a bottom sheet
+   - **"Link"** button to open the original LinkedIn post in browser
+4. Swipe interactions:
+   - **Swipe left** -- Archives the post + forwards to your webhook (if configured)
+   - **Swipe right** -- Deletes the post (never shown again)
+5. Pre-fetches the next batch when fewer than 5 cards remain
+
+### Webhook forwarding
+
+Webhook forwarding happens directly from the app (client-side). Configure it in Settings:
+
+- **Webhook URL** -- Any HTTP endpoint (Slack, Discord, custom server, etc.)
+- **Payload template** -- Customizable JSON with placeholders:
+
+```json
+{
+  "author": "{{author_name}}",
+  "summary": "{{summary}}",
+  "url": "{{post_url}}",
+  "category": "{{category}}"
+}
+```
+
+Available placeholders: `{{author_name}}`, `{{summary}}`, `{{post_url}}`, `{{post_text}}`, `{{category}}`
+
+Webhook forwarding is fire-and-forget -- it never blocks the swipe UI.
+
+### Settings
+
+Open via the gear icon in the top-right corner:
+
+- **Server URL** -- Your NoiseCancel server address (e.g., `http://192.168.1.100:8000`)
+- **Webhook URL** -- Where to forward archived posts
+- **Webhook template** -- JSON payload template with placeholders
+- **Webhook toggle** -- Enable/disable forwarding
+
+All settings are stored in the device's secure storage.
+
+### App structure
+
+```
+app/lib/
+  main.dart                          # Entry point
+  app.dart                           # MaterialApp, dark theme, Provider setup
+  app_state.dart                     # ChangeNotifier app state
+  models/
+    post.dart                        # Post data model (mirrors server schema)
+  services/
+    api_service.dart                 # HTTP client for server API
+    webhook_service.dart             # Client-side webhook forwarding
+  screens/
+    swipe_screen.dart                # Main Tinder-style swipe view
+    settings_screen.dart             # Server + webhook configuration
+  widgets/
+    post_card.dart                   # Card: author, summary, buttons
+    expanded_content.dart            # Bottom sheet: full post text
+```
+
+---
+
 ## Data Storage
 
 Everything is local. No external database needed (SQLite is built into Python).
@@ -331,29 +554,67 @@ Everything is local. No external database needed (SQLite is built into Python).
   session.enc        # Encrypted LinkedIn session cookies
 ```
 
+### Database schema
+
+```
+posts                    # Scraped LinkedIn posts
+  id                     # LinkedIn activity URN
+  author_name, author_url, post_url, post_text
+  scraped_at, run_id
+
+classifications          # AI classification results
+  id, post_id            # 1:1 with posts
+  category               # 'Read' or 'Skip'
+  confidence             # 0.0 - 1.0
+  reasoning, summary     # AI-generated
+  swipe_status           # 'pending', 'archived', 'deleted'
+  swiped_at              # When the user swiped
+
+run_logs                 # Pipeline execution history
+  id, run_type, status
+  posts_scraped, posts_classified, posts_delivered
+  started_at, finished_at, error_message
+```
+
 ## Development
 
 ```bash
-make install     # Install deps + pre-commit hooks
-make test        # Run tests (137 tests)
-make check       # Ruff lint + format + ty type check + deptry
-make docs        # Build MkDocs documentation
+make install       # Install deps + pre-commit hooks
+make test          # Run all Python tests (211 tests)
+make check         # Ruff lint + format + ty type check + deptry
+make server        # Start API server (dev mode, port 8000)
+make test-server   # Run server tests only
+make docs          # Build MkDocs documentation
 ```
 
 ### Project structure
 
 ```
-noise_cancel/
-  cli.py                  # Typer CLI commands
-  config.py               # YAML config with defaults + init generation
-  models.py               # Pydantic models (Post, Classification, etc.)
-  database.py             # SQLite connection + migrations
-  scraper/                # LinkedIn scraping (Playwright)
-  classifier/             # Claude API classification + rules
-  delivery/               # Slack Block Kit messages + feedback
-  logger/                 # DB repository, CSV/JSON export, metrics
-migrations/
-  001_initial.sql         # Database schema
+noise-cancel/                        # Monorepo
+  noise_cancel/                      # Core Python library
+    cli.py                           # Typer CLI commands
+    config.py                        # YAML config + defaults
+    models.py                        # Pydantic models (Post, Classification, RunLog)
+    database.py                      # SQLite connection + migrations
+    scraper/                         # LinkedIn scraping (Playwright)
+    classifier/                      # Claude API classification + rules
+    delivery/                        # Slack Block Kit messages + feedback
+    logger/                          # DB repository, CSV/JSON export, metrics
+  server/                            # FastAPI REST API server
+    main.py                          # App factory, lifespan, CORS
+    schemas.py                       # API request/response Pydantic models
+    dependencies.py                  # FastAPI dependency injection
+    routers/                         # posts, actions, pipeline endpoints
+    services/                        # Pipeline orchestration service
+  app/                               # Flutter cross-platform mobile app
+    lib/                             # Dart source (models, services, screens, widgets)
+    pubspec.yaml                     # Flutter dependencies
+  migrations/                        # SQL migration files
+    001_initial.sql                  # Base schema (posts, classifications, run_logs)
+    002_add_summary.sql              # Added summary column
+    003_add_swipe_status.sql         # Added swipe_status + swiped_at columns
+  tests/                             # Core library tests
+  tests_server/                      # Server API tests
 ```
 
 ## License

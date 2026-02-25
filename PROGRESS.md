@@ -55,3 +55,9 @@
 ## US-016 — PASS (2026-02-25T12:23:57Z)
 - Title: Settings screen for server URL and webhook configuration
 - Attempts: 1
+## US-016 — PASS (2026-02-25T12:24:33Z)
+- Title: Settings screen for server URL and webhook configuration
+- Attempts: 1
+## US-017 — PASS (2026-02-25T12:29:14Z)
+- Title: Makefile targets and project config updates
+- Attempts: 1

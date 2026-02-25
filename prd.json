@@ -255,7 +255,7 @@
         "REQ-085 All existing CLI commands (`noise-cancel --help`, `noise-cancel init`, etc.) still work unchanged"
       ],
       "priority": 17,
-      "passes": false,
+      "passes": true,
       "notes": ""
     }
   ]
