@@ -46,7 +46,7 @@
         "REQ-016 Existing CLI `noise-cancel --help` still works; all existing tests pass"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -59,7 +59,7 @@
         "REQ-019 `make check` passes"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

@@ -5,3 +5,12 @@
 ## US-002 — PASS (2026-02-25T09:28:39Z)
 - Title: Add feed query and swipe status repository functions
 - Attempts: 1
+## US-002 — PASS (2026-02-25T09:29:26Z)
+- Title: Add feed query and swipe status repository functions
+- Attempts: 1
+## US-003 — PASS (2026-02-25T09:38:37Z)
+- Title: FastAPI server skeleton with lifespan and CORS
+- Attempts: 1
+## US-004 — PASS (2026-02-25T09:43:21Z)
+- Title: API response schemas
+- Attempts: 1
