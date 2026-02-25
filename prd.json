@@ -88,7 +88,7 @@
         "REQ-028 Test in `tests_server/test_posts_router.py` covers both found and not-found cases"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -103,7 +103,7 @@
         "REQ-033 Test in `tests_server/test_actions_router.py` verifies status update in DB and response shape"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

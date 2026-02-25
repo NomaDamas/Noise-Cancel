@@ -29,6 +29,14 @@ class ArchiveResponse(BaseModel):
     classification_id: str
 
 
+class ArchivePostResponse(ArchiveResponse):
+    author_name: str
+    summary: str
+    post_url: str
+    post_text: str
+    category: str
+
+
 class DeleteResponse(BaseModel):
     status: str
     classification_id: str

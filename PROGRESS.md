@@ -20,3 +20,9 @@
 ## US-005 — PASS (2026-02-25T09:52:29Z)
 - Title: GET /api/posts feed endpoint
 - Attempts: 1
+## US-006 — PASS (2026-02-25T09:57:34Z)
+- Title: GET /api/posts/{classification_id} detail endpoint
+- Attempts: 1
+## US-007 — PASS (2026-02-25T10:03:24Z)
+- Title: POST /api/posts/{classification_id}/archive endpoint
+- Attempts: 1
