@@ -5,10 +5,13 @@ import 'package:noise_cancel_app/main.dart';
 
 void main() {
   testWidgets('boots dark themed app from main.dart', (WidgetTester tester) async {
-    await tester.pumpWidget(const NoiseCancelAppRoot());
+    await tester.pumpWidget(
+      const NoiseCancelAppRoot(
+        home: Scaffold(body: Text('Theme host')),
+      ),
+    );
 
-    expect(find.text('NoiseCancel'), findsOneWidget);
-    expect(find.text('Feed scaffold ready'), findsOneWidget);
+    expect(find.text('Theme host'), findsOneWidget);
 
     final MaterialApp app = tester.widget<MaterialApp>(find.byType(MaterialApp));
     final ThemeData theme = app.theme!;

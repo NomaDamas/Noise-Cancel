@@ -3,9 +3,15 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import 'app_state.dart';
+import 'screens/swipe_screen.dart';
 
 class NoiseCancelAppRoot extends StatelessWidget {
-  const NoiseCancelAppRoot({super.key});
+  const NoiseCancelAppRoot({
+    super.key,
+    this.home,
+  });
+
+  final Widget? home;
 
   @override
   Widget build(BuildContext context) {
@@ -27,29 +33,7 @@ class NoiseCancelAppRoot extends StatelessWidget {
           ),
           useMaterial3: true,
         ),
-        home: const _HomeScreen(),
-      ),
-    );
-  }
-}
-
-class _HomeScreen extends StatelessWidget {
-  const _HomeScreen();
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('NoiseCancel'),
-      ),
-      body: Center(
-        child: Consumer<AppState>(
-          builder: (context, appState, _) {
-            return Text(
-              appState.loading ? 'Loading posts...' : 'Feed scaffold ready',
-            );
-          },
-        ),
+        home: home ?? const SwipeScreen(),
       ),
     );
   }
