@@ -117,7 +117,7 @@
         "REQ-037 Test in `tests_server/test_actions_router.py` verifies the post no longer appears in GET /api/posts after deletion"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -132,7 +132,7 @@
         "REQ-042 Tests in `tests_server/test_pipeline_router.py` mock the scraper and classifier, verify run_log creation and 202 response"
       ],
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

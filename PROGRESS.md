@@ -26,3 +26,9 @@
 ## US-007 — PASS (2026-02-25T10:03:24Z)
 - Title: POST /api/posts/{classification_id}/archive endpoint
 - Attempts: 1
+## US-008 — PASS (2026-02-25T10:08:50Z)
+- Title: POST /api/posts/{classification_id}/delete endpoint
+- Attempts: 1
+## US-009 — PASS (2026-02-25T10:22:28Z)
+- Title: POST /api/pipeline/run and GET /api/pipeline/status endpoints
+- Attempts: 1
