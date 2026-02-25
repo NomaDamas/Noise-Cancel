@@ -56,4 +56,25 @@ void main() {
     expect(post.authorName, 'John Doe');
     expect(post.swipeStatus, 'archived');
   });
+
+  test('Post.fromJson accepts null post_url values', () {
+    final payload = <String, dynamic>{
+      'id': 'post-3',
+      'classification_id': 'cls-3',
+      'author_name': 'No Link',
+      'author_url': 'https://linkedin.com/in/no-link',
+      'post_url': null,
+      'post_text': 'Post without URL',
+      'summary': 'Summary without URL',
+      'category': 'Read',
+      'confidence': 0.8,
+      'reasoning': 'Still relevant',
+      'classified_at': '2026-02-25T12:00:00+00:00',
+      'swipe_status': 'pending',
+    };
+
+    final post = Post.fromJson(payload);
+
+    expect(post.postUrl, isNull);
+  });
 }

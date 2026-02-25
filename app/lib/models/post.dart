@@ -18,7 +18,7 @@ class Post {
   final String classificationId;
   final String authorName;
   final String authorUrl;
-  final String postUrl;
+  final String? postUrl;
   final String postText;
   final String summary;
   final String category;
@@ -38,7 +38,7 @@ class Post {
       classificationId: _readString(json, 'classificationId', fallbackKey: 'classification_id'),
       authorName: _readString(json, 'authorName', fallbackKey: 'author_name'),
       authorUrl: _readString(json, 'authorUrl', fallbackKey: 'author_url'),
-      postUrl: _readString(json, 'postUrl', fallbackKey: 'post_url'),
+      postUrl: _readOptionalString(json, 'postUrl', fallbackKey: 'post_url'),
       postText: _readString(json, 'postText', fallbackKey: 'post_text'),
       summary: _readString(json, 'summary'),
       category: _readString(json, 'category'),
@@ -55,6 +55,21 @@ class Post {
     String? fallbackKey,
   }) {
     final value = json[key] ?? (fallbackKey != null ? json[fallbackKey] : null);
+    if (value is String) {
+      return value;
+    }
+    throw FormatException('Missing or invalid "$key" field');
+  }
+
+  static String? _readOptionalString(
+    Map<String, dynamic> json,
+    String key, {
+    String? fallbackKey,
+  }) {
+    final value = json[key] ?? (fallbackKey != null ? json[fallbackKey] : null);
+    if (value == null) {
+      return null;
+    }
     if (value is String) {
       return value;
     }
