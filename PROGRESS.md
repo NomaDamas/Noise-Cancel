@@ -49,3 +49,9 @@
 ## US-014 — PASS (2026-02-25T12:11:23Z)
 - Title: SwipeScreen with Tinder-style card swiping
 - Attempts: 1
+## US-015 — PASS (2026-02-25T12:18:20Z)
+- Title: Client-side webhook forwarding service in Flutter
+- Attempts: 1
+## US-016 — PASS (2026-02-25T12:23:57Z)
+- Title: Settings screen for server URL and webhook configuration
+- Attempts: 1

@@ -240,7 +240,7 @@
         "REQ-080 Dark theme styling consistent with the rest of the app"
       ],
       "priority": 16,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
