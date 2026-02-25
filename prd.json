@@ -14,7 +14,7 @@
         "REQ-004 All existing tests in `tests/` still pass after migration is applied"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -29,7 +29,7 @@
         "REQ-009 `make check` passes (ruff lint + format + ty check + deptry)"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

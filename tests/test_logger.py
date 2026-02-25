@@ -3,7 +3,10 @@ from __future__ import annotations
 import csv
 import json
 import sqlite3
+from datetime import datetime, timedelta
 from pathlib import Path
+
+import pytest
 
 from noise_cancel.logger.export import export_csv, export_json
 from noise_cancel.logger.metrics import (
@@ -17,8 +20,10 @@ from noise_cancel.logger.metrics import (
     get_run_history,
 )
 from noise_cancel.logger.repository import (
+    count_posts_for_feed,
     get_classifications,
     get_posts,
+    get_posts_for_feed,
     get_run_logs,
     get_unclassified_posts,
     get_undelivered_classifications,
@@ -27,6 +32,7 @@ from noise_cancel.logger.repository import (
     insert_run_log,
     mark_delivered,
     update_run_log,
+    update_swipe_status,
 )
 from noise_cancel.models import Classification, Post, RunLog
 
@@ -175,6 +181,155 @@ class TestClassifications:
         rows = get_classifications(db_connection)
         assert rows[0]["delivered"] == 1
         assert rows[0]["delivered_at"] is not None
+
+
+class TestFeedQueriesAndSwipeStatus:
+    def _seed_feed_data(self, db_connection: sqlite3.Connection) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post("post-1"))
+        insert_post(db_connection, _make_post("post-2"))
+        insert_post(db_connection, _make_post("post-3"))
+        insert_post(db_connection, _make_post("post-4"))
+        insert_classification(
+            db_connection,
+            _make_classification("cls-1", "post-1", "Read").model_copy(
+                update={
+                    "summary": "Summary 1",
+                    "reasoning": "Reasoning 1",
+                    "confidence": 0.81,
+                    "classified_at": "2025-01-01T10:00:00+00:00",
+                },
+            ),
+        )
+        insert_classification(
+            db_connection,
+            _make_classification("cls-2", "post-2", "Read").model_copy(
+                update={
+                    "summary": "Summary 2",
+                    "reasoning": "Reasoning 2",
+                    "confidence": 0.95,
+                    "classified_at": "2025-01-01T12:00:00+00:00",
+                },
+            ),
+        )
+        insert_classification(
+            db_connection,
+            _make_classification("cls-3", "post-3", "Skip").model_copy(
+                update={"classified_at": "2025-01-01T11:00:00+00:00"},
+            ),
+        )
+        insert_classification(
+            db_connection,
+            _make_classification("cls-4", "post-4", "Read").model_copy(
+                update={"classified_at": "2025-01-01T09:00:00+00:00"},
+            ),
+        )
+        db_connection.execute(
+            "UPDATE classifications SET swipe_status = 'archived' WHERE id = ?",
+            ("cls-4",),
+        )
+        db_connection.commit()
+
+    def test_get_posts_for_feed_returns_joined_rows_ordered_by_classified_at(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        self._seed_feed_data(db_connection)
+
+        rows = get_posts_for_feed(
+            db_connection,
+            category="Read",
+            swipe_status="pending",
+            limit=20,
+            offset=0,
+        )
+
+        assert [row["classification_id"] for row in rows] == ["cls-2", "cls-1"]
+        expected_keys = {
+            "id",
+            "classification_id",
+            "author_name",
+            "author_url",
+            "post_url",
+            "post_text",
+            "summary",
+            "category",
+            "confidence",
+            "reasoning",
+            "classified_at",
+            "swipe_status",
+        }
+        assert set(rows[0]) == expected_keys
+        assert rows[0]["id"] == "post-2"
+        assert rows[0]["summary"] == "Summary 2"
+        assert rows[0]["swipe_status"] == "pending"
+
+        paged = get_posts_for_feed(
+            db_connection,
+            category="Read",
+            swipe_status="pending",
+            limit=1,
+            offset=1,
+        )
+        assert len(paged) == 1
+        assert paged[0]["classification_id"] == "cls-1"
+
+    def test_get_posts_for_feed_empty_results(self, db_connection: sqlite3.Connection) -> None:
+        assert get_posts_for_feed(db_connection) == []
+
+    def test_count_posts_for_feed_respects_filters(self, db_connection: sqlite3.Connection) -> None:
+        self._seed_feed_data(db_connection)
+
+        assert count_posts_for_feed(db_connection, category="Read", swipe_status="pending") == 2
+        assert count_posts_for_feed(db_connection, category="Read", swipe_status="archived") == 1
+        assert count_posts_for_feed(db_connection, category="Skip", swipe_status="pending") == 1
+
+    def test_count_posts_for_feed_empty_results(self, db_connection: sqlite3.Connection) -> None:
+        assert count_posts_for_feed(db_connection) == 0
+
+    def test_update_swipe_status_sets_swiped_at_timestamp(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        _seed_basic(db_connection)
+
+        update_swipe_status(db_connection, "cls-1", "deleted")
+
+        row = db_connection.execute(
+            "SELECT swipe_status, swiped_at FROM classifications WHERE id = ?",
+            ("cls-1",),
+        ).fetchone()
+        assert row is not None
+        assert row["swipe_status"] == "deleted"
+        assert row["swiped_at"] is not None
+        parsed = datetime.fromisoformat(row["swiped_at"])
+        assert parsed.tzinfo is not None
+        assert parsed.utcoffset() == timedelta(0)
+
+    def test_update_swipe_status_rejects_invalid_status(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        _seed_basic(db_connection)
+
+        with pytest.raises(ValueError, match="Invalid swipe status"):
+            update_swipe_status(db_connection, "cls-1", "bad")
+
+    def test_update_swipe_status_nonexistent_classification_id_is_noop(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        _seed_basic(db_connection)
+
+        update_swipe_status(db_connection, "missing", "archived")
+
+        row = db_connection.execute(
+            "SELECT swipe_status, swiped_at FROM classifications WHERE id = ?",
+            ("cls-1",),
+        ).fetchone()
+        assert row is not None
+        assert row["swipe_status"] == "pending"
+        assert row["swiped_at"] is None
 
 
 # ---------------------------------------------------------------------------
