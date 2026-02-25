@@ -1,0 +1,262 @@
+{
+  "project": "NoiseCancel Tinder-style Mobile App",
+  "branchName": "Feature/#6",
+  "description": "Transform the CLI-only NoiseCancel tool into a monorepo with a FastAPI REST API server and Flutter cross-platform mobile app. Users swipe through AI-classified LinkedIn posts in a Tinder-style UI. Swipe left to archive (save + forward to webhook from app). Swipe right to delete (never show again). The existing Python core (scraper, classifier, DB, models) is reused as-is. Webhook forwarding is handled client-side by the Flutter app.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add swipe_status to classifications DB schema",
+      "description": "Create a new SQL migration that adds `swipe_status` and `swiped_at` columns to the existing `classifications` table. The `swipe_status` column tracks whether the user has swiped on a post ('pending', 'archived', 'deleted'). Add indexes for efficient feed queries.",
+      "acceptanceCriteria": [
+        "REQ-001 File `migrations/003_add_swipe_status.sql` exists with `ALTER TABLE classifications ADD COLUMN swipe_status TEXT NOT NULL DEFAULT 'pending'` and `ALTER TABLE classifications ADD COLUMN swiped_at TEXT`",
+        "REQ-002 Migration creates indexes: `idx_classifications_swipe` on `swipe_status` and `idx_classifications_category` on `category`",
+        "REQ-003 Existing `noise_cancel/database.py` migration system picks up and applies 003 without changes",
+        "REQ-004 All existing tests in `tests/` still pass after migration is applied"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Add feed query and swipe status repository functions",
+      "description": "Add new functions to `noise_cancel/logger/repository.py` for querying the post feed (joined posts+classifications filtered by category and swipe_status), counting total feed posts, and updating swipe status. These are the data layer for the server API.",
+      "acceptanceCriteria": [
+        "REQ-005 `get_posts_for_feed(conn, category='Read', swipe_status='pending', limit=20, offset=0)` returns list of dicts with joined post+classification fields (id, classification_id, author_name, author_url, post_url, post_text, summary, category, confidence, reasoning, classified_at, swipe_status), ordered by `classified_at DESC`",
+        "REQ-006 `count_posts_for_feed(conn, category='Read', swipe_status='pending')` returns total integer count for pagination",
+        "REQ-007 `update_swipe_status(conn, classification_id, status)` updates `swipe_status` and sets `swiped_at` to current UTC ISO timestamp; raises ValueError if status not in ('pending', 'archived', 'deleted')",
+        "REQ-008 Tests written in `tests/test_logger.py` cover all three functions including edge cases (empty results, invalid status, nonexistent classification_id)",
+        "REQ-009 `make check` passes (ruff lint + format + ty check + deptry)"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "FastAPI server skeleton with lifespan and CORS",
+      "description": "Create the `server/` Python package with FastAPI app factory. The server loads existing `AppConfig`, connects to SQLite via existing `database.py`, applies migrations on startup, and includes CORS middleware for the Flutter app. Add `fastapi` and `uvicorn` to project dependencies.",
+      "acceptanceCriteria": [
+        "REQ-010 `server/__init__.py`, `server/main.py`, `server/dependencies.py` exist",
+        "REQ-011 `server/main.py` exports a FastAPI `app` created by `create_app()` factory; uses async lifespan context manager to load config via `noise_cancel.config.load_config()`, get DB connection via `noise_cancel.database.get_connection()`, apply migrations via `noise_cancel.database.apply_migrations()`, store on `app.state`",
+        "REQ-012 CORS middleware allows all origins, methods, and headers",
+        "REQ-013 `server/dependencies.py` provides `get_db(request)` and `get_config(request)` FastAPI dependency functions that read from `request.app.state`",
+        "REQ-014 `pyproject.toml` updated: `\"fastapi>=0.115.0\"` and `\"uvicorn[standard]>=0.34.0\"` added to dependencies; `\"server\"` added to `tool.hatch.build.targets.wheel.packages`; `\"tests_server\"` added to `tool.pytest.ini_options.testpaths`",
+        "REQ-015 `uv run uvicorn server.main:app` starts without errors and `/docs` returns Swagger UI",
+        "REQ-016 Existing CLI `noise-cancel --help` still works; all existing tests pass"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "API response schemas",
+      "description": "Create Pydantic request/response models in `server/schemas.py` for all API endpoints. These mirror the existing `noise_cancel/models.py` patterns.",
+      "acceptanceCriteria": [
+        "REQ-017 `server/schemas.py` defines: `PostResponse` (id, classification_id, author_name, author_url, post_url, post_text, summary, category, confidence, reasoning, classified_at, swipe_status \u2014 all str except confidence: float), `PostListResponse` (posts: list[PostResponse], total: int, has_more: bool), `ArchiveResponse` (status: str, classification_id: str), `DeleteResponse` (status: str, classification_id: str), `PipelineRunRequest` (limit: int = 50, skip_scrape: bool = False), `PipelineRunResponse` (run_id: str, status: str, message: str), `PipelineStatusResponse` (with latest run fields)",
+        "REQ-018 All schema classes are Pydantic BaseModel subclasses",
+        "REQ-019 `make check` passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "GET /api/posts feed endpoint",
+      "description": "Implement the main feed endpoint that the Flutter app calls to fetch posts for the swipe UI. Returns paginated, filtered posts joined with their classifications.",
+      "acceptanceCriteria": [
+        "REQ-020 `server/routers/__init__.py` and `server/routers/posts.py` exist",
+        "REQ-021 `GET /api/posts` accepts query params: `category` (str, default \"Read\"), `swipe_status` (str, default \"pending\"), `limit` (int, default 20), `offset` (int, default 0)",
+        "REQ-022 Response is `PostListResponse` with `has_more` computed from total vs offset+limit",
+        "REQ-023 Router is included in the FastAPI app via `server/main.py`",
+        "REQ-024 Test in `tests_server/test_posts_router.py` using FastAPI `TestClient`: seed DB with posts+classifications, verify response shape, verify filtering by category and swipe_status, verify pagination",
+        "REQ-025 `make check` and `make test` pass"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-006",
+      "title": "GET /api/posts/{classification_id} detail endpoint",
+      "description": "Endpoint to fetch a single post with its classification by classification_id. Used when the Flutter app needs full detail.",
+      "acceptanceCriteria": [
+        "REQ-026 `GET /api/posts/{classification_id}` returns `PostResponse` for valid ID",
+        "REQ-027 Returns 404 with `{\"detail\": \"Not found\"}` for nonexistent classification_id",
+        "REQ-028 Test in `tests_server/test_posts_router.py` covers both found and not-found cases"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-007",
+      "title": "POST /api/posts/{classification_id}/archive endpoint",
+      "description": "Archive endpoint called when user swipes left. Updates the classification's swipe_status to 'archived' in the DB. Returns the full post data in the response so the Flutter app can forward it to the webhook.",
+      "acceptanceCriteria": [
+        "REQ-029 `server/routers/actions.py` exists",
+        "REQ-030 `POST /api/posts/{classification_id}/archive` calls `update_swipe_status(conn, classification_id, 'archived')`",
+        "REQ-031 Response includes `ArchiveResponse` with status=\"archived\" and the classification_id; response also includes full post data (author_name, summary, post_url, post_text, category) so the Flutter app can build webhook payloads",
+        "REQ-032 Returns 404 for nonexistent classification_id",
+        "REQ-033 Test in `tests_server/test_actions_router.py` verifies status update in DB and response shape"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "POST /api/posts/{classification_id}/delete endpoint",
+      "description": "Delete endpoint called when user swipes right. Updates the classification's swipe_status to 'deleted' so it never appears in the feed again.",
+      "acceptanceCriteria": [
+        "REQ-034 `POST /api/posts/{classification_id}/delete` calls `update_swipe_status(conn, classification_id, 'deleted')`",
+        "REQ-035 Response is `DeleteResponse` with status=\"deleted\" and classification_id",
+        "REQ-036 Returns 404 for nonexistent classification_id",
+        "REQ-037 Test in `tests_server/test_actions_router.py` verifies the post no longer appears in GET /api/posts after deletion"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "POST /api/pipeline/run and GET /api/pipeline/status endpoints",
+      "description": "Pipeline endpoints to trigger scrape+classify on demand and check the latest run status. The run executes as a background task. Reuses existing core logic from `noise_cancel/scraper/` and `noise_cancel/classifier/`.",
+      "acceptanceCriteria": [
+        "REQ-038 `server/routers/pipeline.py` and `server/services/pipeline.py` exist",
+        "REQ-039 `POST /api/pipeline/run` accepts optional `PipelineRunRequest` body (limit, skip_scrape); creates a RunLog via `insert_run_log()`, starts scrape+classify as a FastAPI `BackgroundTasks` task, returns 202 with `PipelineRunResponse` containing run_id",
+        "REQ-040 `server/services/pipeline.py` has `async run_pipeline(conn, config, run_id, limit, skip_scrape)` that calls `LinkedInScraper.scrape_feed()`, `insert_post()`, `ClassificationEngine.classify_posts()`, `insert_classification()`, `update_run_log()` \u2014 all imported from existing `noise_cancel` modules",
+        "REQ-041 `GET /api/pipeline/status` returns the latest run log via `get_run_logs(conn, limit=1)` wrapped in `PipelineStatusResponse`",
+        "REQ-042 Tests in `tests_server/test_pipeline_router.py` mock the scraper and classifier, verify run_log creation and 202 response"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Flutter app scaffold with dark theme",
+      "description": "Create the Flutter project in `app/` directory with dark theme, basic navigation, and required dependencies. This is the foundation for all UI stories.",
+      "acceptanceCriteria": [
+        "REQ-043 `app/` directory contains a valid Flutter project (`pubspec.yaml`, `lib/main.dart`, `android/`, `ios/`)",
+        "REQ-044 `pubspec.yaml` includes dependencies: `http`, `provider`, `flutter_card_swiper`, `url_launcher`, `flutter_secure_storage`, `google_fonts`",
+        "REQ-045 `app/lib/main.dart` creates a `MaterialApp` with dark theme (scaffold background #121212, card color #1E1E1E, blue primary accent)",
+        "REQ-046 `app/lib/app.dart` (or in main.dart) sets up `Provider` with `ChangeNotifierProvider` for app state",
+        "REQ-047 `flutter analyze` in `app/` reports no errors",
+        "REQ-048 `.gitignore` updated at repo root with Flutter build artifact patterns (app/build/, app/.dart_tool/, app/ios/Pods/, etc.)"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Post data model and API service in Flutter",
+      "description": "Create the Dart Post model mirroring the server's PostResponse schema, and the ApiService class for HTTP communication with the server.",
+      "acceptanceCriteria": [
+        "REQ-049 `app/lib/models/post.dart` defines a `Post` class with fields matching `PostResponse` (id, classificationId, authorName, authorUrl, postUrl, postText, summary, category, confidence, reasoning, classifiedAt, swipeStatus); includes `fromJson(Map<String, dynamic>)` factory constructor",
+        "REQ-050 `app/lib/services/api_service.dart` defines `ApiService` class with configurable `baseUrl`; methods: `fetchPosts({int limit, int offset})` returns `Future<List<Post>>`, `archivePost(String classificationId)` returns `Future<Map<String, dynamic>>` (full post data for webhook), `deletePost(String classificationId)` returns `Future<void>`",
+        "REQ-051 `ApiService` reads server URL from `flutter_secure_storage`",
+        "REQ-052 All HTTP calls include proper error handling (try-catch, status code checks)"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "PostCard widget with author, summary, more button, and link button",
+      "description": "The card widget displayed in the swipe stack. Shows author name prominently, AI summary as body text, a \"More\" button to expand full content, and a \"Link\" button to open the original LinkedIn post.",
+      "acceptanceCriteria": [
+        "REQ-053 `app/lib/widgets/post_card.dart` defines a `PostCard` StatelessWidget that takes a `Post` object",
+        "REQ-054 Card displays: author_name in bold large text at top, summary as body text below, a row at the bottom with two buttons",
+        "REQ-055 \"\ub354\ubcf4\uae30\" (More) button opens a modal bottom sheet (`ExpandedContent`) showing the full `post_text`",
+        "REQ-056 \"Link\" button uses `url_launcher` to open `post_url` in external browser; hidden if `post_url` is null",
+        "REQ-057 Card uses dark theme card color (#1E1E1E), rounded corners, adequate padding for readability"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "ExpandedContent bottom sheet for full post text",
+      "description": "A modal bottom sheet widget showing the full post content, author info, and classification metadata when the user taps \"More\".",
+      "acceptanceCriteria": [
+        "REQ-058 `app/lib/widgets/expanded_content.dart` defines an `ExpandedContent` widget that takes a `Post` object",
+        "REQ-059 Shows author name at top with link to LinkedIn profile (author_url via url_launcher)",
+        "REQ-060 Full `post_text` displayed in a scrollable area",
+        "REQ-061 Category and confidence shown as a small badge/chip (e.g., \"Read 95%\")",
+        "REQ-062 Dark theme styling consistent with the rest of the app"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "SwipeScreen with Tinder-style card swiping",
+      "description": "The main screen of the app. Uses `flutter_card_swiper` to display PostCards in a swipeable stack. Swipe left archives (calls archive API + webhook from app), swipe right deletes (calls delete API). Pre-fetches more posts when the stack runs low.",
+      "acceptanceCriteria": [
+        "REQ-063 `app/lib/screens/swipe_screen.dart` defines `SwipeScreen` as a StatefulWidget",
+        "REQ-064 Uses `CardSwiper` from `flutter_card_swiper` package to display `PostCard` widgets in a stack",
+        "REQ-065 Swipe left triggers: `ApiService.archivePost()` call, then if webhook enabled, `WebhookService.forward()` with the returned post data",
+        "REQ-066 Swipe right triggers: `ApiService.deletePost()` call",
+        "REQ-067 When fewer than 5 cards remain in the stack, automatically fetches the next batch from the API (pagination via offset)",
+        "REQ-068 Empty state displayed when no posts are available (friendly message like \"All caught up!\")",
+        "REQ-069 AppBar shows \"NoiseCancel\" title and a settings gear icon that navigates to SettingsScreen"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Client-side webhook forwarding service in Flutter",
+      "description": "A Dart service that handles webhook forwarding entirely from the Flutter app. When the user archives a post, the app sends the post data to the user-configured webhook URL. Supports customizable JSON payload templates. Fire-and-forget (does not block the swipe UI).",
+      "acceptanceCriteria": [
+        "REQ-070 `app/lib/services/webhook_service.dart` defines `WebhookService` class",
+        "REQ-071 Reads webhook config from `flutter_secure_storage`: `webhook_url` (String), `webhook_enabled` (bool), `webhook_template` (String, JSON template with placeholders like `{{author_name}}`, `{{summary}}`, `{{post_url}}`, `{{category}}`)",
+        "REQ-072 `forward(Map<String, dynamic> postData)` method: if enabled, builds payload by substituting placeholders in template with actual post data, HTTP POSTs to webhook_url",
+        "REQ-073 Forwarding is fire-and-forget: errors are caught and logged, never thrown to caller, never blocks the swipe UI",
+        "REQ-074 Default template when none configured: `{\"author\": \"{{author_name}}\", \"summary\": \"{{summary}}\", \"url\": \"{{post_url}}\", \"category\": \"{{category}}\"}`"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Settings screen for server URL and webhook configuration",
+      "description": "A settings screen where the user configures the server URL and webhook forwarding (URL, JSON template, enable/disable). All settings stored in local secure storage.",
+      "acceptanceCriteria": [
+        "REQ-075 `app/lib/screens/settings_screen.dart` defines `SettingsScreen` widget",
+        "REQ-076 Text field for \"Server URL\" (persisted to secure storage, used by ApiService)",
+        "REQ-077 Section for webhook config: toggle switch for enable/disable, text field for webhook URL, multiline text field for JSON payload template",
+        "REQ-078 Save button persists all settings to `flutter_secure_storage`",
+        "REQ-079 On open, loads current values from secure storage into the fields",
+        "REQ-080 Dark theme styling consistent with the rest of the app"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Makefile targets and project config updates",
+      "description": "Update Makefile with server and Flutter targets. Update CLAUDE.md to document the new architecture.",
+      "acceptanceCriteria": [
+        "REQ-081 `Makefile` adds targets: `server` (runs `uv run uvicorn server.main:app --reload --host 0.0.0.0 --port 8000`), `test-server` (runs `uv run python -m pytest tests_server`), `flutter-run` (runs `cd app && flutter run`)",
+        "REQ-082 `CLAUDE.md` updated with new monorepo structure, server architecture description, and Flutter app description",
+        "REQ-083 `make check` passes for both `noise_cancel/` and `server/` code",
+        "REQ-084 `make test` runs both `tests/` and `tests_server/`",
+        "REQ-085 All existing CLI commands (`noise-cancel --help`, `noise-cancel init`, etc.) still work unchanged"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

@@ -48,3 +48,40 @@ def test_classifications_table_columns(db_connection):
     assert "confidence" in columns
     assert "reasoning" in columns
     assert "delivered" in columns
+    assert "swipe_status" in columns
+    assert "swiped_at" in columns
+
+
+def test_classifications_swipe_status_default_and_not_null(db_connection):
+    rows = db_connection.execute("PRAGMA table_info(classifications)").fetchall()
+    by_name = {row[1]: row for row in rows}
+    swipe_status_column = by_name["swipe_status"]
+
+    # PRAGMA table_info layout: (cid, name, type, notnull, dflt_value, pk)
+    assert swipe_status_column[3] == 1
+    assert str(swipe_status_column[4]).strip("'\"") == "pending"
+
+
+def test_classifications_swipe_indexes_exist(db_connection):
+    rows = db_connection.execute("PRAGMA index_list(classifications)").fetchall()
+    index_names = {row[1] for row in rows}
+
+    assert "idx_classifications_swipe" in index_names
+    assert "idx_classifications_category" in index_names
+
+    swipe_columns = {row[2] for row in db_connection.execute("PRAGMA index_info(idx_classifications_swipe)").fetchall()}
+    category_columns = {
+        row[2] for row in db_connection.execute("PRAGMA index_info(idx_classifications_category)").fetchall()
+    }
+    assert swipe_columns == {"swipe_status"}
+    assert category_columns == {"category"}
+
+
+def test_apply_migrations_tracks_latest_migration(tmp_path):
+    db_path = tmp_path / "test.db"
+    conn = get_connection(str(db_path))
+    apply_migrations(conn)
+
+    applied = {row[0] for row in conn.execute("SELECT name FROM _migrations").fetchall()}
+    assert "003_add_swipe_status.sql" in applied
+    conn.close()
