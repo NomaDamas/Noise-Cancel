@@ -115,3 +115,43 @@ def test_archive_returns_404_for_missing_classification_id(tmp_path: Path, monke
         response = client.post("/api/posts/missing/archive")
         assert response.status_code == 404
         assert response.json() == {"detail": "Not found"}
+
+
+def test_delete_updates_status_and_removes_post_from_feed(tmp_path: Path, monkeypatch) -> None:
+    client, conn = _build_client(tmp_path, monkeypatch)
+    with client:
+        _seed_data(conn)
+
+        response = client.post("/api/posts/cls-1/delete")
+        assert response.status_code == 200
+
+        payload = response.json()
+        assert payload == {
+            "status": "deleted",
+            "classification_id": "cls-1",
+        }
+
+        row = conn.execute(
+            "SELECT swipe_status FROM classifications WHERE id = ?",
+            ("cls-1",),
+        ).fetchone()
+        assert row is not None
+        assert row["swipe_status"] == "deleted"
+
+        feed_response = client.get("/api/posts")
+        assert feed_response.status_code == 200
+
+        feed_payload = feed_response.json()
+        assert feed_payload["posts"] == []
+        assert feed_payload["total"] == 0
+        assert feed_payload["has_more"] is False
+
+
+def test_delete_returns_404_for_missing_classification_id(tmp_path: Path, monkeypatch) -> None:
+    client, conn = _build_client(tmp_path, monkeypatch)
+    with client:
+        _seed_data(conn)
+
+        response = client.post("/api/posts/missing/delete")
+        assert response.status_code == 404
+        assert response.json() == {"detail": "Not found"}

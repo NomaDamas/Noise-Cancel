@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from noise_cancel.logger.repository import get_post_for_feed_by_classification_id, update_swipe_status
 from server.dependencies import get_db
-from server.schemas import ArchivePostResponse
+from server.schemas import ArchivePostResponse, DeleteResponse
 
 router = APIRouter(tags=["actions"])
 
@@ -32,3 +32,17 @@ def archive_post(
         post_text=post["post_text"],
         category=post["category"],
     )
+
+
+@router.post("/posts/{classification_id}/delete", response_model=DeleteResponse)
+def delete_post(
+    classification_id: str,
+    db: Annotated[sqlite3.Connection, Depends(get_db)],
+) -> DeleteResponse:
+    post = get_post_for_feed_by_classification_id(conn=db, classification_id=classification_id)
+    if post is None:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    update_swipe_status(conn=db, classification_id=classification_id, status="deleted")
+
+    return DeleteResponse(status="deleted", classification_id=classification_id)
