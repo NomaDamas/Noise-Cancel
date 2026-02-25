@@ -148,7 +148,7 @@
         "REQ-048 `.gitignore` updated at repo root with Flutter build artifact patterns (app/build/, app/.dart_tool/, app/ios/Pods/, etc.)"
       ],
       "priority": 10,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -162,7 +162,7 @@
         "REQ-052 All HTTP calls include proper error handling (try-catch, status code checks)"
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -177,7 +177,7 @@
         "REQ-057 Card uses dark theme card color (#1E1E1E), rounded corners, adequate padding for readability"
       ],
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -192,7 +192,7 @@
         "REQ-062 Dark theme styling consistent with the rest of the app"
       ],
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

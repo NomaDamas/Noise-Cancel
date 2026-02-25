@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:noise_cancel_app/models/post.dart';
+import 'package:noise_cancel_app/widgets/expanded_content.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class PostCard extends StatelessWidget {
@@ -18,7 +19,10 @@ class PostCard extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (_) => ExpandedContent(postText: post.postText),
+      builder: (_) => SizedBox(
+        height: MediaQuery.of(context).size.height * 0.85,
+        child: ExpandedContent(post: post),
+      ),
     );
   }
 
@@ -78,28 +82,6 @@ class PostCard extends StatelessWidget {
               ],
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class ExpandedContent extends StatelessWidget {
-  const ExpandedContent({
-    super.key,
-    required this.postText,
-  });
-
-  final String postText;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: SingleChildScrollView(
-          child: Text(postText),
         ),
       ),
     );

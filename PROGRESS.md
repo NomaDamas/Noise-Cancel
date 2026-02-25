@@ -34,3 +34,12 @@
 - Attempts: 1
 ## US-010 — FAIL attempt 1 (2026-02-25T10:54:26Z)
 ## US-010 — FAIL attempt 2 (2026-02-25T11:22:22Z)
+## US-010 — PASS (2026-02-25T11:41:01Z)
+- Title: Flutter app scaffold with dark theme
+- Attempts: 3
+## US-011 — PASS (2026-02-25T11:48:23Z)
+- Title: Post data model and API service in Flutter
+- Attempts: 1
+## US-012 — PASS (2026-02-25T11:55:25Z)
+- Title: PostCard widget with author, summary, more button, and link button
+- Attempts: 1

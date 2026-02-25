@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noise_cancel_app/models/post.dart';
+import 'package:noise_cancel_app/widgets/expanded_content.dart';
 import 'package:noise_cancel_app/widgets/post_card.dart';
 
 Post _buildPost({String? postUrl = 'https://linkedin.com/posts/post-1'}) {
@@ -34,7 +35,8 @@ Future<void> _pumpPostCard(WidgetTester tester, Post post) async {
 }
 
 void main() {
-  testWidgets('renders author summary and both action buttons when link exists', (
+  testWidgets('renders author summary and both action buttons when link exists',
+      (
     WidgetTester tester,
   ) async {
     await _pumpPostCard(tester, _buildPost());
@@ -57,7 +59,8 @@ void main() {
     expect(find.text('This is the full post body text'), findsOneWidget);
   });
 
-  testWidgets('hides Link button when postUrl is null', (WidgetTester tester) async {
+  testWidgets('hides Link button when postUrl is null',
+      (WidgetTester tester) async {
     await _pumpPostCard(tester, _buildPost(postUrl: null));
 
     expect(find.text('더보기'), findsOneWidget);
