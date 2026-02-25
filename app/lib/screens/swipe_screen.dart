@@ -121,10 +121,7 @@ class _SwipeScreenState extends State<SwipeScreen> {
     try {
       if (direction == CardSwiperDirection.left) {
         final archivedPostData = await _apiService.archivePost(post.classificationId);
-        final enabled = await _webhookService.isEnabled();
-        if (enabled) {
-          unawaited(_webhookService.forward(archivedPostData));
-        }
+        unawaited(_webhookService.forward(archivedPostData));
       } else if (direction == CardSwiperDirection.right) {
         await _apiService.deletePost(post.classificationId);
       } else {

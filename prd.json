@@ -209,7 +209,7 @@
         "REQ-069 AppBar shows \"NoiseCancel\" title and a settings gear icon that navigates to SettingsScreen"
       ],
       "priority": 14,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -224,7 +224,7 @@
         "REQ-074 Default template when none configured: `{\"author\": \"{{author_name}}\", \"summary\": \"{{summary}}\", \"url\": \"{{post_url}}\", \"category\": \"{{category}}\"}`"
       ],
       "priority": 15,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

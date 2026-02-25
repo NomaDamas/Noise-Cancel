@@ -43,3 +43,9 @@
 ## US-012 — PASS (2026-02-25T11:55:25Z)
 - Title: PostCard widget with author, summary, more button, and link button
 - Attempts: 1
+## US-013 — PASS (2026-02-25T12:01:57Z)
+- Title: ExpandedContent bottom sheet for full post text
+- Attempts: 1
+## US-014 — PASS (2026-02-25T12:11:23Z)
+- Title: SwipeScreen with Tinder-style card swiping
+- Attempts: 1
