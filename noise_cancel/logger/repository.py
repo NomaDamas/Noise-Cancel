@@ -84,6 +84,7 @@ _ALLOWED_RUN_LOG_COLUMNS = frozenset({
     "posts_delivered",
     "error_message",
 })
+_ALLOWED_SWIPE_STATUSES = frozenset({"pending", "archived", "deleted"})
 
 
 def update_run_log(conn: sqlite3.Connection, run_id: str, **kwargs: object) -> None:
@@ -169,6 +170,78 @@ def get_undelivered_classifications(conn: sqlite3.Connection) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def get_posts_for_feed(
+    conn: sqlite3.Connection,
+    category: str = "Read",
+    swipe_status: str = "pending",
+    limit: int = 20,
+    offset: int = 0,
+) -> list[dict]:
+    rows = conn.execute(
+        """SELECT
+               p.id AS id,
+               c.id AS classification_id,
+               p.author_name,
+               p.author_url,
+               p.post_url,
+               p.post_text,
+               c.summary,
+               c.category,
+               c.confidence,
+               c.reasoning,
+               c.classified_at,
+               c.swipe_status
+           FROM classifications c
+           INNER JOIN posts p ON p.id = c.post_id
+           WHERE c.category = ? AND c.swipe_status = ?
+           ORDER BY c.classified_at DESC
+           LIMIT ? OFFSET ?""",
+        (category, swipe_status, limit, offset),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_post_for_feed_by_classification_id(
+    conn: sqlite3.Connection,
+    classification_id: str,
+) -> dict | None:
+    row = conn.execute(
+        """SELECT
+               p.id AS id,
+               c.id AS classification_id,
+               p.author_name,
+               p.author_url,
+               p.post_url,
+               p.post_text,
+               c.summary,
+               c.category,
+               c.confidence,
+               c.reasoning,
+               c.classified_at,
+               c.swipe_status
+           FROM classifications c
+           INNER JOIN posts p ON p.id = c.post_id
+           WHERE c.id = ?""",
+        (classification_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def count_posts_for_feed(
+    conn: sqlite3.Connection,
+    category: str = "Read",
+    swipe_status: str = "pending",
+) -> int:
+    row = conn.execute(
+        """SELECT COUNT(*) AS total
+           FROM classifications c
+           INNER JOIN posts p ON p.id = c.post_id
+           WHERE c.category = ? AND c.swipe_status = ?""",
+        (category, swipe_status),
+    ).fetchone()
+    return int(row["total"]) if row else 0
+
+
 def get_classifications(
     conn: sqlite3.Connection,
     category: str | None = None,
@@ -192,5 +265,18 @@ def mark_delivered(conn: sqlite3.Connection, classification_id: str) -> None:
     conn.execute(
         "UPDATE classifications SET delivered = 1, delivered_at = ? WHERE id = ?",
         (now, classification_id),
+    )
+    conn.commit()
+
+
+def update_swipe_status(conn: sqlite3.Connection, classification_id: str, status: str) -> None:
+    if status not in _ALLOWED_SWIPE_STATUSES:
+        msg = f"Invalid swipe status: {status}"
+        raise ValueError(msg)
+
+    now = datetime.now(tz=timezone.utc).isoformat()
+    conn.execute(
+        "UPDATE classifications SET swipe_status = ?, swiped_at = ? WHERE id = ?",
+        (status, now, classification_id),
     )
     conn.commit()

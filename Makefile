@@ -18,7 +18,22 @@ check: ## Run code quality tools.
 .PHONY: test
 test: ## Test the code with pytest
 	@echo "🚀 Testing code: Running pytest"
-	@uv run python -m pytest --doctest-modules
+	@uv run python -m pytest --doctest-modules tests tests_server
+
+.PHONY: test-server
+test-server: ## Run server tests only
+	@echo "🚀 Testing server code: Running pytest tests_server"
+	@uv run python -m pytest tests_server
+
+.PHONY: server
+server: ## Start FastAPI dev server
+	@echo "🚀 Starting FastAPI dev server on http://0.0.0.0:8012"
+	@uv run uvicorn server.main:app --reload --host 0.0.0.0 --port 8012
+
+.PHONY: flutter-run
+flutter-run: ## Run Flutter app
+	@echo "🚀 Running Flutter app"
+	@cd app && flutter run
 
 .PHONY: build
 build: clean-build ## Build wheel file
