@@ -278,4 +278,70 @@ void main() {
 
     expect(find.text('Mock Settings Screen'), findsOneWidget);
   });
+
+  testWidgets('pull-to-refresh resets posts and fetches from offset 0',
+      (tester) async {
+    final events = <String>[];
+    final apiService = FakeApiService(
+      responsesByOffset: <int, List<Post>>{
+        0: <Post>[_buildPost(0), _buildPost(1)],
+      },
+      events: events,
+    );
+    final secondBrainService =
+        FakeSecondBrainService(enabled: false, events: events);
+
+    await _pumpScreen(
+      tester,
+      apiService: apiService,
+      secondBrainService: secondBrainService,
+    );
+
+    expect(apiService.requestedOffsets, <int>[0]);
+    expect(find.byType(PostCard), findsWidgets);
+
+    // Pull to refresh via fling down on the scrollable area.
+    await tester.fling(
+      find.byType(SingleChildScrollView),
+      const Offset(0, 300),
+      1000,
+    );
+    await tester.pumpAndSettle();
+
+    expect(apiService.requestedOffsets, <int>[0, 0]);
+  });
+
+  testWidgets('pull-to-refresh works in empty "All caught up!" state',
+      (tester) async {
+    final events = <String>[];
+    final apiService = FakeApiService(
+      responsesByOffset: <int, List<Post>>{
+        0: <Post>[],
+      },
+      events: events,
+    );
+    final secondBrainService =
+        FakeSecondBrainService(enabled: false, events: events);
+
+    await _pumpScreen(
+      tester,
+      apiService: apiService,
+      secondBrainService: secondBrainService,
+    );
+
+    expect(find.text('All caught up!'), findsOneWidget);
+
+    // Update the fake to return posts on the next fetch.
+    apiService.responsesByOffset[0] = <Post>[_buildPost(0)];
+
+    await tester.fling(
+      find.byType(SingleChildScrollView),
+      const Offset(0, 300),
+      1000,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(PostCard), findsWidgets);
+    expect(find.text('All caught up!'), findsNothing);
+  });
 }

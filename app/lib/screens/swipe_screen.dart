@@ -107,6 +107,18 @@ class _SwipeScreenState extends State<SwipeScreen> {
     }
   }
 
+  Future<void> _onRefresh() async {
+    setState(() {
+      _posts.clear();
+      _offset = 0;
+      _currentIndex = null;
+      _hasMore = true;
+      _errorMessage = null;
+      _isLoading = false;
+    });
+    await _fetchNextBatch();
+  }
+
   Future<bool> _onSwipe(
     int previousIndex,
     int? currentIndex,
@@ -199,49 +211,63 @@ class _SwipeScreenState extends State<SwipeScreen> {
                   ),
                 ),
               Expanded(
-                child: Builder(
-                  builder: (context) {
-                    if (showLoadingState) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
+                child: RefreshIndicator(
+                  onRefresh: _onRefresh,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        child: SizedBox(
+                          height: constraints.maxHeight,
+                          width: constraints.maxWidth,
+                          child: Builder(
+                            builder: (context) {
+                              if (showLoadingState) {
+                                return const Center(child: CircularProgressIndicator());
+                              }
 
-                    if (showEmptyState) {
-                      return const Center(
-                        child: Text(
-                          'All caught up!',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                              if (showEmptyState) {
+                                return const Center(
+                                  child: Text(
+                                    'All caught up!',
+                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                                  ),
+                                );
+                              }
+
+                              if (_posts.isEmpty) {
+                                return const SizedBox.shrink();
+                              }
+
+                              return CardSwiper(
+                                controller: _swiperController,
+                                cardsCount: _posts.length,
+                                numberOfCardsDisplayed: min(3, _posts.length),
+                                isLoop: false,
+                                allowedSwipeDirection: const AllowedSwipeDirection.only(
+                                  left: true,
+                                  right: true,
+                                ),
+                                onSwipe: _onSwipe,
+                                cardBuilder: (
+                                  context,
+                                  index,
+                                  horizontalThresholdPercentage,
+                                  verticalThresholdPercentage,
+                                ) {
+                                  return PostCard(
+                                    post: _posts[index],
+                                    horizontalOffsetPercentage:
+                                        horizontalThresholdPercentage,
+                                  );
+                                },
+                              );
+                            },
+                          ),
                         ),
                       );
-                    }
-
-                    if (_posts.isEmpty) {
-                      return const SizedBox.shrink();
-                    }
-
-                    return CardSwiper(
-                      controller: _swiperController,
-                      cardsCount: _posts.length,
-                      numberOfCardsDisplayed: min(3, _posts.length),
-                      isLoop: false,
-                      allowedSwipeDirection: const AllowedSwipeDirection.only(
-                        left: true,
-                        right: true,
-                      ),
-                      onSwipe: _onSwipe,
-                      cardBuilder: (
-                        context,
-                        index,
-                        horizontalThresholdPercentage,
-                        verticalThresholdPercentage,
-                      ) {
-                        return PostCard(
-                          post: _posts[index],
-                          horizontalOffsetPercentage:
-                              horizontalThresholdPercentage,
-                        );
-                      },
-                    );
-                  },
+                    },
+                  ),
                 ),
               ),
             ],
