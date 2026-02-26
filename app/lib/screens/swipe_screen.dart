@@ -234,7 +234,11 @@ class _SwipeScreenState extends State<SwipeScreen> {
                         horizontalThresholdPercentage,
                         verticalThresholdPercentage,
                       ) {
-                        return PostCard(post: _posts[index]);
+                        return PostCard(
+                          post: _posts[index],
+                          horizontalOffsetPercentage:
+                              horizontalThresholdPercentage,
+                        );
                       },
                     );
                   },

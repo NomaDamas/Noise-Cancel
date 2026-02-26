@@ -7,9 +7,14 @@ class PostCard extends StatelessWidget {
   const PostCard({
     super.key,
     required this.post,
+    this.horizontalOffsetPercentage = 0,
   });
 
   final Post post;
+  final int horizontalOffsetPercentage;
+
+  static const _saveColor = Color(0xFF4CAF50);
+  static const _dropColor = Color(0xFFEF5350);
 
   void _showExpandedContent(BuildContext context) {
     showModalBottomSheet<void>(
@@ -43,14 +48,22 @@ class PostCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final opacity = (horizontalOffsetPercentage.abs() / 100).clamp(0.0, 1.0);
 
+    final overlayColor = horizontalOffsetPercentage < 0 ? _saveColor : _dropColor;
     return Card(
       color: const Color(0xFF1E1E1E),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
+        side: opacity > 0
+            ? BorderSide(
+                color: overlayColor.withOpacity(opacity),
+                width: 2,
+              )
+            : BorderSide.none,
       ),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -61,26 +74,41 @@ class PostCard extends StatelessWidget {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 12),
+            const Divider(color: Colors.white12),
             Text(
               post.summary,
-              style: textTheme.bodyLarge,
+              style: textTheme.bodyLarge?.copyWith(height: 1.5),
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                TextButton(
-                  onPressed: () => _showExpandedContent(context),
-                  child: const Text('더보기'),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => _showExpandedContent(context),
+                icon: const Icon(Icons.expand_more),
+                label: const Text('더보기'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  side: const BorderSide(color: Colors.white24),
+                  shape: const StadiumBorder(),
                 ),
-                const Spacer(),
-                if (post.postUrl != null)
-                  TextButton(
-                    onPressed: _openPostUrl,
-                    child: const Text('Link'),
-                  ),
-              ],
+              ),
             ),
+            if (post.postUrl != null) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _openPostUrl,
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('LinkedIn에서 보기'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white70,
+                    side: const BorderSide(color: Colors.white24),
+                    shape: const StadiumBorder(),
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
