@@ -21,13 +21,20 @@ Post _buildPost({String? postUrl = 'https://linkedin.com/posts/post-1'}) {
   );
 }
 
-Future<void> _pumpPostCard(WidgetTester tester, Post post) async {
+Future<void> _pumpPostCard(
+  WidgetTester tester,
+  Post post, {
+  int horizontalOffsetPercentage = 0,
+}) async {
   await tester.pumpWidget(
     MaterialApp(
       theme: ThemeData(useMaterial3: false),
       home: Scaffold(
         body: Center(
-          child: PostCard(post: post),
+          child: PostCard(
+            post: post,
+            horizontalOffsetPercentage: horizontalOffsetPercentage,
+          ),
         ),
       ),
     ),
@@ -44,7 +51,7 @@ void main() {
     expect(find.text('Jane Doe'), findsOneWidget);
     expect(find.text('Short AI summary'), findsOneWidget);
     expect(find.text('더보기'), findsOneWidget);
-    expect(find.text('Link'), findsOneWidget);
+    expect(find.text('LinkedIn에서 보기'), findsOneWidget);
   });
 
   testWidgets('opens ExpandedContent bottom sheet with full post text', (
@@ -59,12 +66,12 @@ void main() {
     expect(find.text('This is the full post body text'), findsOneWidget);
   });
 
-  testWidgets('hides Link button when postUrl is null',
+  testWidgets('hides LinkedIn button when postUrl is null',
       (WidgetTester tester) async {
     await _pumpPostCard(tester, _buildPost(postUrl: null));
 
     expect(find.text('더보기'), findsOneWidget);
-    expect(find.text('Link'), findsNothing);
+    expect(find.text('LinkedIn에서 보기'), findsNothing);
   });
 
   testWidgets('uses dark card color rounded corners and readable padding', (
@@ -86,8 +93,50 @@ void main() {
     );
 
     final hasReadablePadding = paddings.any(
-      (padding) => padding.padding == const EdgeInsets.all(16),
+      (padding) => padding.padding == const EdgeInsets.all(20),
     );
     expect(hasReadablePadding, isTrue);
+  });
+
+  testWidgets('shows green border when dragged left', (
+    WidgetTester tester,
+  ) async {
+    await _pumpPostCard(tester, _buildPost(), horizontalOffsetPercentage: -50);
+
+    final card = tester.widget<Card>(find.byType(Card));
+    final shape = card.shape as RoundedRectangleBorder;
+    expect(shape.side.color, const Color(0xFF4CAF50).withOpacity(0.5));
+    expect(shape.side.width, 2);
+  });
+
+  testWidgets('shows red border when dragged right', (
+    WidgetTester tester,
+  ) async {
+    await _pumpPostCard(tester, _buildPost(), horizontalOffsetPercentage: 50);
+
+    final card = tester.widget<Card>(find.byType(Card));
+    final shape = card.shape as RoundedRectangleBorder;
+    expect(shape.side.color, const Color(0xFFEF5350).withOpacity(0.5));
+    expect(shape.side.width, 2);
+  });
+
+  testWidgets('shows no border when offset is zero', (
+    WidgetTester tester,
+  ) async {
+    await _pumpPostCard(tester, _buildPost(), horizontalOffsetPercentage: 0);
+
+    final card = tester.widget<Card>(find.byType(Card));
+    final shape = card.shape as RoundedRectangleBorder;
+    expect(shape.side, BorderSide.none);
+  });
+
+  testWidgets('buttons are vertically stacked with outlined style', (
+    WidgetTester tester,
+  ) async {
+    await _pumpPostCard(tester, _buildPost());
+
+    expect(find.text('더보기'), findsOneWidget);
+    expect(find.text('LinkedIn에서 보기'), findsOneWidget);
+    expect(find.byType(OutlinedButton), findsNWidgets(2));
   });
 }
