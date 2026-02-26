@@ -9,7 +9,7 @@ PYPROJECT_PATH = PROJECT_ROOT / "pyproject.toml"
 def test_makefile_has_server_target():
     makefile_text = MAKEFILE_PATH.read_text()
     assert "server: ## Start FastAPI dev server" in makefile_text
-    assert "uv run uvicorn server.main:app --reload --host 0.0.0.0 --port 8000" in makefile_text
+    assert "uv run uvicorn server.main:app --reload --host 0.0.0.0 --port 8012" in makefile_text
 
 
 def test_makefile_has_test_server_target():

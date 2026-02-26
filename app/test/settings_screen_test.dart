@@ -58,7 +58,7 @@ void main() {
 
     await tester.enterText(
       find.byKey(SettingsScreen.serverUrlFieldKey),
-      'http://configured:8000/',
+      'http://configured:8012/',
     );
     await tester.tap(find.byKey(SettingsScreen.webhookEnabledToggleKey));
     await tester.pump();
@@ -77,7 +77,7 @@ void main() {
     const storage = FlutterSecureStorage();
     expect(
       await storage.read(key: ApiService.serverUrlStorageKey),
-      'http://configured:8000/',
+      'http://configured:8012/',
     );
     expect(
       await storage.read(key: WebhookService.webhookEnabledStorageKey),

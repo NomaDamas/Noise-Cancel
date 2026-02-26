@@ -188,7 +188,7 @@
 - Priority: 17
 - Description: Update Makefile with server and Flutter targets. Update CLAUDE.md to document the new architecture.
 - Acceptance Criteria:
-  - REQ-081 `Makefile` adds targets: `server` (runs `uv run uvicorn server.main:app --reload --host 0.0.0.0 --port 8000`), `test-server` (runs `uv run python -m pytest tests_server`), `flutter-run` (runs `cd app && flutter run`)
+  - REQ-081 `Makefile` adds targets: `server` (runs `uv run uvicorn server.main:app --reload --host 0.0.0.0 --port 8012`), `test-server` (runs `uv run python -m pytest tests_server`), `flutter-run` (runs `cd app && flutter run`)
   - REQ-082 `CLAUDE.md` updated with new monorepo structure, server architecture description, and Flutter app description
   - REQ-083 `make check` passes for both `noise_cancel/` and `server/` code
   - REQ-084 `make test` runs both `tests/` and `tests_server/`

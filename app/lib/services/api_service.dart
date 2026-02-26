@@ -33,7 +33,7 @@ class ApiService {
        _client = client ?? http.Client();
 
   static const String serverUrlStorageKey = 'server_url';
-  static const String _defaultBaseUrl = 'http://localhost:8000';
+  static const String _defaultBaseUrl = 'http://localhost:8012';
 
   final String? _configuredBaseUrl;
   final FlutterSecureStorage _storage;

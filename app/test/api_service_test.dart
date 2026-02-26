@@ -71,11 +71,11 @@ void main() {
       );
     });
 
-    final service = ApiService(baseUrl: 'http://configured:8000', client: client);
+    final service = ApiService(baseUrl: 'http://configured:8012', client: client);
     await service.fetchPosts();
 
     expect(requestedUri, isNotNull);
-    expect(requestedUri.toString(), 'http://configured:8000/api/posts?limit=20&offset=0');
+    expect(requestedUri.toString(), 'http://configured:8012/api/posts?limit=20&offset=0');
   });
 
   test('archivePost returns the full post data payload', () async {
@@ -96,11 +96,11 @@ void main() {
       );
     });
 
-    final service = ApiService(baseUrl: 'http://localhost:8000', client: client);
+    final service = ApiService(baseUrl: 'http://localhost:8012', client: client);
     final payload = await service.archivePost('cls-1');
 
     expect(requestedUri, isNotNull);
-    expect(requestedUri.toString(), 'http://localhost:8000/api/posts/cls-1/archive');
+    expect(requestedUri.toString(), 'http://localhost:8012/api/posts/cls-1/archive');
     expect(payload['author_name'], 'Jane Doe');
     expect(payload['category'], 'Read');
   });
@@ -118,16 +118,16 @@ void main() {
       );
     });
 
-    final service = ApiService(baseUrl: 'http://localhost:8000', client: client);
+    final service = ApiService(baseUrl: 'http://localhost:8012', client: client);
     await service.deletePost('cls-1');
 
     expect(requestedUri, isNotNull);
-    expect(requestedUri.toString(), 'http://localhost:8000/api/posts/cls-1/delete');
+    expect(requestedUri.toString(), 'http://localhost:8012/api/posts/cls-1/delete');
   });
 
   test('fetchPosts throws ApiServiceException on non-200 response', () async {
     final client = MockClient((_) async => http.Response('server error', 500));
-    final service = ApiService(baseUrl: 'http://localhost:8000', client: client);
+    final service = ApiService(baseUrl: 'http://localhost:8012', client: client);
 
     await expectLater(
       service.fetchPosts(),
@@ -137,7 +137,7 @@ void main() {
 
   test('archivePost throws ApiServiceException on http errors', () async {
     final client = MockClient((_) async => http.Response('not found', 404));
-    final service = ApiService(baseUrl: 'http://localhost:8000', client: client);
+    final service = ApiService(baseUrl: 'http://localhost:8012', client: client);
 
     await expectLater(
       service.archivePost('missing'),
@@ -147,7 +147,7 @@ void main() {
 
   test('deletePost throws ApiServiceException on network exceptions', () async {
     final client = MockClient((_) async => throw http.ClientException('network error'));
-    final service = ApiService(baseUrl: 'http://localhost:8000', client: client);
+    final service = ApiService(baseUrl: 'http://localhost:8012', client: client);
 
     await expectLater(
       service.deletePost('cls-1'),

@@ -329,10 +329,10 @@ The server exposes a FastAPI REST API that the mobile app (or any client) uses t
 ### Start the server
 
 ```bash
-make server    # uvicorn on port 8000, auto-reload
+make server    # uvicorn on port 8012, auto-reload
 ```
 
-Swagger docs at `http://localhost:8000/docs`.
+Swagger docs at `http://localhost:8012/docs`.
 
 ### API Endpoints
 
@@ -350,7 +350,7 @@ Swagger docs at `http://localhost:8000/docs`.
 Fetches posts for the swipe UI. Only returns posts matching the given category and swipe status.
 
 ```bash
-curl "http://localhost:8000/api/posts?category=Read&swipe_status=pending&limit=20&offset=0"
+curl "http://localhost:8012/api/posts?category=Read&swipe_status=pending&limit=20&offset=0"
 ```
 
 ```json
@@ -388,7 +388,7 @@ curl "http://localhost:8000/api/posts?category=Read&swipe_status=pending&limit=2
 Archives a post (swipe left). Returns the full post data so the client can forward it to a webhook.
 
 ```bash
-curl -X POST "http://localhost:8000/api/posts/abc123/archive"
+curl -X POST "http://localhost:8012/api/posts/abc123/archive"
 ```
 
 ```json
@@ -408,7 +408,7 @@ curl -X POST "http://localhost:8000/api/posts/abc123/archive"
 Deletes a post from the feed (swipe right). The post is never shown again.
 
 ```bash
-curl -X POST "http://localhost:8000/api/posts/abc123/delete"
+curl -X POST "http://localhost:8012/api/posts/abc123/delete"
 ```
 
 ```json
@@ -423,7 +423,7 @@ curl -X POST "http://localhost:8000/api/posts/abc123/delete"
 Triggers the scrape + classify pipeline as a background task. Returns immediately with a run ID.
 
 ```bash
-curl -X POST "http://localhost:8000/api/pipeline/run" \
+curl -X POST "http://localhost:8012/api/pipeline/run" \
   -H "Content-Type: application/json" \
   -d '{"limit": 50, "skip_scrape": false}'
 ```
@@ -441,7 +441,7 @@ curl -X POST "http://localhost:8000/api/pipeline/run" \
 Returns the latest pipeline run status.
 
 ```bash
-curl "http://localhost:8000/api/pipeline/status"
+curl "http://localhost:8012/api/pipeline/status"
 ```
 
 ```json
@@ -512,7 +512,7 @@ Webhook forwarding is fire-and-forget -- it never blocks the swipe UI.
 
 Open via the gear icon in the top-right corner:
 
-- **Server URL** -- Your NoiseCancel server address (e.g., `http://192.168.1.100:8000`)
+- **Server URL** -- Your NoiseCancel server address (e.g., `http://192.168.1.100:8012`)
 - **Webhook URL** -- Where to forward archived posts
 - **Webhook template** -- JSON payload template with placeholders
 - **Webhook toggle** -- Enable/disable forwarding
@@ -579,7 +579,7 @@ run_logs                 # Pipeline execution history
 make install       # Install deps + pre-commit hooks
 make test          # Run all Python tests (211 tests)
 make check         # Ruff lint + format + ty type check + deptry
-make server        # Start API server (dev mode, port 8000)
+make server        # Start API server (dev mode, port 8012)
 make test-server   # Run server tests only
 make docs          # Build MkDocs documentation
 ```

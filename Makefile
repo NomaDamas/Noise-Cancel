@@ -27,8 +27,8 @@ test-server: ## Run server tests only
 
 .PHONY: server
 server: ## Start FastAPI dev server
-	@echo "🚀 Starting FastAPI dev server on http://0.0.0.0:8000"
-	@uv run uvicorn server.main:app --reload --host 0.0.0.0 --port 8000
+	@echo "🚀 Starting FastAPI dev server on http://0.0.0.0:8012"
+	@uv run uvicorn server.main:app --reload --host 0.0.0.0 --port 8012
 
 .PHONY: flutter-run
 flutter-run: ## Run Flutter app

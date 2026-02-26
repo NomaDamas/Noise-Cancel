@@ -130,7 +130,7 @@ classifications(id TEXT PK, post_id TEXT UNIQUE FK→posts, category TEXT,
 ```bash
 make check          # Lint + format + type check + dependency check
 make test           # Run all Python tests
-make server         # Start FastAPI dev server (port 8000)
+make server         # Start FastAPI dev server (port 8012)
 make test-server    # Run server tests only
 cd app && flutter run        # Run Flutter app
 cd app && flutter analyze    # Dart static analysis

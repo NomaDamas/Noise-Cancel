@@ -39,7 +39,7 @@ class FakeApiService extends ApiService {
              'post_text': 'Full post text 0',
              'category': 'Read',
            },
-       super(baseUrl: 'http://localhost:8000');
+       super(baseUrl: 'http://localhost:8012');
 
   final Map<int, List<Post>> responsesByOffset;
   final List<String> events;
