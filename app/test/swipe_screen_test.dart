@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noise_cancel_app/models/post.dart';
 import 'package:noise_cancel_app/screens/swipe_screen.dart';
 import 'package:noise_cancel_app/services/api_service.dart';
-import 'package:noise_cancel_app/services/webhook_service.dart';
+import 'package:noise_cancel_app/services/second_brain_service.dart';
 import 'package:noise_cancel_app/widgets/post_card.dart';
 
 Post _buildPost(int index) {
@@ -71,8 +71,8 @@ class FakeApiService extends ApiService {
   }
 }
 
-class FakeWebhookService extends WebhookService {
-  FakeWebhookService({
+class FakeSecondBrainService extends SecondBrainService {
+  FakeSecondBrainService({
     required this.enabled,
     required this.events,
   });
@@ -94,7 +94,7 @@ class FakeWebhookService extends WebhookService {
 Future<void> _pumpScreen(
   WidgetTester tester, {
   required FakeApiService apiService,
-  required FakeWebhookService webhookService,
+  required FakeSecondBrainService secondBrainService,
   CardSwiperController? controller,
   WidgetBuilder? settingsScreenBuilder,
 }) async {
@@ -103,7 +103,7 @@ Future<void> _pumpScreen(
       theme: ThemeData(useMaterial3: false),
       home: SwipeScreen(
         apiService: apiService,
-        webhookService: webhookService,
+        secondBrainService: secondBrainService,
         swiperController: controller,
         settingsScreenBuilder: settingsScreenBuilder,
       ),
@@ -122,12 +122,12 @@ void main() {
       },
       events: events,
     );
-    final webhookService = FakeWebhookService(enabled: true, events: events);
+    final secondBrainService = FakeSecondBrainService(enabled: true, events: events);
 
     await _pumpScreen(
       tester,
       apiService: apiService,
-      webhookService: webhookService,
+      secondBrainService: secondBrainService,
     );
 
     expect(find.byType(SwipeScreen), findsOneWidget);
@@ -135,7 +135,7 @@ void main() {
     expect(find.byType(PostCard), findsWidgets);
   });
 
-  testWidgets('swipe left archives and forwards when webhook is enabled',
+  testWidgets('swipe left archives and forwards when SecondBrain is enabled',
       (tester) async {
     final controller = CardSwiperController();
     final events = <String>[];
@@ -154,12 +154,12 @@ void main() {
       events: events,
       archiveResponse: archivePayload,
     );
-    final webhookService = FakeWebhookService(enabled: true, events: events);
+    final secondBrainService = FakeSecondBrainService(enabled: true, events: events);
 
     await _pumpScreen(
       tester,
       apiService: apiService,
-      webhookService: webhookService,
+      secondBrainService: secondBrainService,
       controller: controller,
     );
 
@@ -167,7 +167,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(apiService.archivedIds, <String>['cls-0']);
-    expect(webhookService.forwardedPayloads, <Map<String, dynamic>>[archivePayload]);
+    expect(secondBrainService.forwardedPayloads, <Map<String, dynamic>>[archivePayload]);
     expect(events, <String>['archive', 'forward']);
   });
 
@@ -180,12 +180,12 @@ void main() {
       },
       events: events,
     );
-    final webhookService = FakeWebhookService(enabled: false, events: events);
+    final secondBrainService = FakeSecondBrainService(enabled: false, events: events);
 
     await _pumpScreen(
       tester,
       apiService: apiService,
-      webhookService: webhookService,
+      secondBrainService: secondBrainService,
       controller: controller,
     );
 
@@ -193,7 +193,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(apiService.deletedIds, <String>['cls-0']);
-    expect(webhookService.forwardedPayloads, isEmpty);
+    expect(secondBrainService.forwardedPayloads, isEmpty);
     expect(events, <String>['delete']);
   });
 
@@ -210,12 +210,12 @@ void main() {
       },
       events: events,
     );
-    final webhookService = FakeWebhookService(enabled: false, events: events);
+    final secondBrainService = FakeSecondBrainService(enabled: false, events: events);
 
     await _pumpScreen(
       tester,
       apiService: apiService,
-      webhookService: webhookService,
+      secondBrainService: secondBrainService,
       controller: controller,
     );
 
@@ -239,12 +239,12 @@ void main() {
       },
       events: events,
     );
-    final webhookService = FakeWebhookService(enabled: false, events: events);
+    final secondBrainService = FakeSecondBrainService(enabled: false, events: events);
 
     await _pumpScreen(
       tester,
       apiService: apiService,
-      webhookService: webhookService,
+      secondBrainService: secondBrainService,
     );
 
     expect(find.text('All caught up!'), findsOneWidget);
@@ -259,12 +259,12 @@ void main() {
       },
       events: events,
     );
-    final webhookService = FakeWebhookService(enabled: false, events: events);
+    final secondBrainService = FakeSecondBrainService(enabled: false, events: events);
 
     await _pumpScreen(
       tester,
       apiService: apiService,
-      webhookService: webhookService,
+      secondBrainService: secondBrainService,
       settingsScreenBuilder: (_) => const Scaffold(
         body: Center(child: Text('Mock Settings Screen')),
       ),

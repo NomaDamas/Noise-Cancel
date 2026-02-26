@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../services/api_service.dart';
-import '../services/webhook_service.dart';
+import '../services/second_brain_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -13,14 +13,14 @@ class SettingsScreen extends StatefulWidget {
   static const ValueKey<String> serverUrlFieldKey = ValueKey<String>(
     'settings_server_url_field',
   );
-  static const ValueKey<String> webhookEnabledToggleKey = ValueKey<String>(
-    'settings_webhook_enabled_toggle',
+  static const ValueKey<String> secondBrainEnabledToggleKey = ValueKey<String>(
+    'settings_second_brain_enabled_toggle',
   );
-  static const ValueKey<String> webhookUrlFieldKey = ValueKey<String>(
-    'settings_webhook_url_field',
+  static const ValueKey<String> secondBrainUrlFieldKey = ValueKey<String>(
+    'settings_second_brain_url_field',
   );
-  static const ValueKey<String> webhookTemplateFieldKey = ValueKey<String>(
-    'settings_webhook_template_field',
+  static const ValueKey<String> secondBrainApiKeyFieldKey = ValueKey<String>(
+    'settings_second_brain_api_key_field',
   );
   static const ValueKey<String> saveButtonKey = ValueKey<String>(
     'settings_save_button',
@@ -37,25 +37,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const Color _cardColor = Color(0xFF1E1E1E);
 
   late final TextEditingController _serverUrlController;
-  late final TextEditingController _webhookUrlController;
-  late final TextEditingController _webhookTemplateController;
-  bool _webhookEnabled = false;
+  late final TextEditingController _secondBrainUrlController;
+  late final TextEditingController _secondBrainApiKeyController;
+  bool _secondBrainEnabled = false;
   bool _isSaving = false;
 
   @override
   void initState() {
     super.initState();
     _serverUrlController = TextEditingController();
-    _webhookUrlController = TextEditingController();
-    _webhookTemplateController = TextEditingController();
+    _secondBrainUrlController = TextEditingController();
+    _secondBrainApiKeyController = TextEditingController();
     _loadSettings();
   }
 
   @override
   void dispose() {
     _serverUrlController.dispose();
-    _webhookUrlController.dispose();
-    _webhookTemplateController.dispose();
+    _secondBrainUrlController.dispose();
+    _secondBrainApiKeyController.dispose();
     super.dispose();
   }
 
@@ -63,9 +63,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final values = await Future.wait<String?>(<Future<String?>>[
         widget._storage.read(key: ApiService.serverUrlStorageKey),
-        widget._storage.read(key: WebhookService.webhookEnabledStorageKey),
-        widget._storage.read(key: WebhookService.webhookUrlStorageKey),
-        widget._storage.read(key: WebhookService.webhookTemplateStorageKey),
+        widget._storage.read(key: SecondBrainService.enabledStorageKey),
+        widget._storage.read(key: SecondBrainService.urlStorageKey),
+        widget._storage.read(key: SecondBrainService.apiKeyStorageKey),
       ]);
 
       if (!mounted) {
@@ -74,9 +74,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       setState(() {
         _serverUrlController.text = values[0] ?? '';
-        _webhookEnabled = values[1] == 'true';
-        _webhookUrlController.text = values[2] ?? '';
-        _webhookTemplateController.text = values[3] ?? '';
+        _secondBrainEnabled = values[1] == 'true';
+        _secondBrainUrlController.text = values[2] ?? '';
+        _secondBrainApiKeyController.text = values[3] ?? '';
       });
     } catch (_) {
       if (!mounted) {
@@ -100,16 +100,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           value: _serverUrlController.text.trim(),
         ),
         widget._storage.write(
-          key: WebhookService.webhookEnabledStorageKey,
-          value: _webhookEnabled.toString(),
+          key: SecondBrainService.enabledStorageKey,
+          value: _secondBrainEnabled.toString(),
         ),
         widget._storage.write(
-          key: WebhookService.webhookUrlStorageKey,
-          value: _webhookUrlController.text.trim(),
+          key: SecondBrainService.urlStorageKey,
+          value: _secondBrainUrlController.text.trim(),
         ),
         widget._storage.write(
-          key: WebhookService.webhookTemplateStorageKey,
-          value: _webhookTemplateController.text.trim(),
+          key: SecondBrainService.apiKeyStorageKey,
+          value: _secondBrainApiKeyController.text.trim(),
         ),
       ]);
 
@@ -193,7 +193,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        'Webhook Configuration',
+                        'SecondBrain',
                         style:
                             Theme.of(context).textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
@@ -201,36 +201,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       const SizedBox(height: 8),
                       SwitchListTile(
-                        key: SettingsScreen.webhookEnabledToggleKey,
-                        value: _webhookEnabled,
+                        key: SettingsScreen.secondBrainEnabledToggleKey,
+                        value: _secondBrainEnabled,
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Enable Webhook Forwarding'),
+                        title: const Text('Enable SecondBrain Sync'),
                         onChanged: (value) {
                           setState(() {
-                            _webhookEnabled = value;
+                            _secondBrainEnabled = value;
                           });
                         },
                       ),
                       const SizedBox(height: 8),
                       TextFormField(
-                        key: SettingsScreen.webhookUrlFieldKey,
-                        controller: _webhookUrlController,
+                        key: SettingsScreen.secondBrainUrlFieldKey,
+                        controller: _secondBrainUrlController,
                         decoration: const InputDecoration(
-                          labelText: 'Webhook URL',
-                          hintText: 'https://hooks.example.com/...',
+                          labelText: 'SecondBrain URL',
+                          hintText: 'https://brain.example.com',
                         ),
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
-                        key: SettingsScreen.webhookTemplateFieldKey,
-                        controller: _webhookTemplateController,
-                        minLines: 4,
-                        maxLines: 8,
+                        key: SettingsScreen.secondBrainApiKeyFieldKey,
+                        controller: _secondBrainApiKeyController,
+                        obscureText: true,
                         decoration: const InputDecoration(
-                          labelText: 'JSON Payload Template',
-                          hintText:
-                              '{"summary":"{{summary}}","url":"{{post_url}}"}',
-                          alignLabelWithHint: true,
+                          labelText: 'API Key',
+                          hintText: 'Your SecondBrain API key',
                         ),
                       ),
                     ],

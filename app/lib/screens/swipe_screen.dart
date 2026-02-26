@@ -6,20 +6,20 @@ import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:noise_cancel_app/models/post.dart';
 import 'package:noise_cancel_app/screens/settings_screen.dart';
 import 'package:noise_cancel_app/services/api_service.dart';
-import 'package:noise_cancel_app/services/webhook_service.dart';
+import 'package:noise_cancel_app/services/second_brain_service.dart';
 import 'package:noise_cancel_app/widgets/post_card.dart';
 
 class SwipeScreen extends StatefulWidget {
   const SwipeScreen({
     super.key,
     this.apiService,
-    this.webhookService,
+    this.secondBrainService,
     this.swiperController,
     this.settingsScreenBuilder,
   });
 
   final ApiService? apiService;
-  final WebhookService? webhookService;
+  final SecondBrainService? secondBrainService;
   final CardSwiperController? swiperController;
   final WidgetBuilder? settingsScreenBuilder;
 
@@ -32,7 +32,7 @@ class _SwipeScreenState extends State<SwipeScreen> {
   static const int _prefetchThreshold = 5;
 
   late final ApiService _apiService;
-  late final WebhookService _webhookService;
+  late final SecondBrainService _secondBrainService;
   late final CardSwiperController _swiperController;
   late final WidgetBuilder _settingsScreenBuilder;
   late final bool _ownsController;
@@ -48,7 +48,7 @@ class _SwipeScreenState extends State<SwipeScreen> {
   void initState() {
     super.initState();
     _apiService = widget.apiService ?? ApiService();
-    _webhookService = widget.webhookService ?? WebhookService();
+    _secondBrainService = widget.secondBrainService ?? SecondBrainService();
     _ownsController = widget.swiperController == null;
     _swiperController = widget.swiperController ?? CardSwiperController();
     _settingsScreenBuilder = widget.settingsScreenBuilder ?? (_) => const SettingsScreen();
@@ -121,7 +121,7 @@ class _SwipeScreenState extends State<SwipeScreen> {
     try {
       if (direction == CardSwiperDirection.left) {
         final archivedPostData = await _apiService.archivePost(post.classificationId);
-        unawaited(_webhookService.forward(archivedPostData));
+        unawaited(_secondBrainService.forward(archivedPostData));
       } else if (direction == CardSwiperDirection.right) {
         await _apiService.deletePost(post.classificationId);
       } else {

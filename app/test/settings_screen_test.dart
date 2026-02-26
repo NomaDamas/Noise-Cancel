@@ -3,7 +3,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noise_cancel_app/screens/settings_screen.dart';
 import 'package:noise_cancel_app/services/api_service.dart';
-import 'package:noise_cancel_app/services/webhook_service.dart';
+import 'package:noise_cancel_app/services/second_brain_service.dart';
 
 Future<void> _pumpSettingsScreen(WidgetTester tester) async {
   await tester.pumpWidget(
@@ -29,30 +29,31 @@ void main() {
       (tester) async {
     FlutterSecureStorage.setMockInitialValues(<String, String>{
       ApiService.serverUrlStorageKey: 'http://localhost:9000',
-      WebhookService.webhookEnabledStorageKey: 'true',
-      WebhookService.webhookUrlStorageKey: 'https://hooks.example.com/path',
-      WebhookService.webhookTemplateStorageKey:
-          '{"author":"{{author_name}}","summary":"{{summary}}"}',
+      SecondBrainService.enabledStorageKey: 'true',
+      SecondBrainService.urlStorageKey: 'https://my-brain.example.com',
+      SecondBrainService.apiKeyStorageKey: 'my-secret-key',
     });
 
     await _pumpSettingsScreen(tester);
 
     expect(find.text('Server URL'), findsOneWidget);
-    expect(find.text('Webhook Configuration'), findsOneWidget);
+    expect(find.text('SecondBrain'), findsOneWidget);
     expect(find.text('http://localhost:9000'), findsOneWidget);
-    expect(find.text('https://hooks.example.com/path'), findsOneWidget);
+    expect(find.text('https://my-brain.example.com'), findsOneWidget);
+
+    // API key is obscured, so verify the field exists by key
     expect(
-      find.text('{"author":"{{author_name}}","summary":"{{summary}}"}'),
+      find.byKey(SettingsScreen.secondBrainApiKeyFieldKey),
       findsOneWidget,
     );
 
-    final webhookToggle = tester.widget<SwitchListTile>(
-      find.byKey(SettingsScreen.webhookEnabledToggleKey),
+    final toggle = tester.widget<SwitchListTile>(
+      find.byKey(SettingsScreen.secondBrainEnabledToggleKey),
     );
-    expect(webhookToggle.value, isTrue);
+    expect(toggle.value, isTrue);
   });
 
-  testWidgets('save persists server and webhook settings to secure storage',
+  testWidgets('save persists server and SecondBrain settings to secure storage',
       (tester) async {
     await _pumpSettingsScreen(tester);
 
@@ -60,15 +61,15 @@ void main() {
       find.byKey(SettingsScreen.serverUrlFieldKey),
       'http://configured:8012/',
     );
-    await tester.tap(find.byKey(SettingsScreen.webhookEnabledToggleKey));
+    await tester.tap(find.byKey(SettingsScreen.secondBrainEnabledToggleKey));
     await tester.pump();
     await tester.enterText(
-      find.byKey(SettingsScreen.webhookUrlFieldKey),
-      'https://hooks.example.com/custom',
+      find.byKey(SettingsScreen.secondBrainUrlFieldKey),
+      'https://brain.example.com',
     );
     await tester.enterText(
-      find.byKey(SettingsScreen.webhookTemplateFieldKey),
-      '{"headline":"{{summary}}"}',
+      find.byKey(SettingsScreen.secondBrainApiKeyFieldKey),
+      'my-secret-key',
     );
 
     await tester.tap(find.byKey(SettingsScreen.saveButtonKey));
@@ -80,16 +81,16 @@ void main() {
       'http://configured:8012/',
     );
     expect(
-      await storage.read(key: WebhookService.webhookEnabledStorageKey),
+      await storage.read(key: SecondBrainService.enabledStorageKey),
       'true',
     );
     expect(
-      await storage.read(key: WebhookService.webhookUrlStorageKey),
-      'https://hooks.example.com/custom',
+      await storage.read(key: SecondBrainService.urlStorageKey),
+      'https://brain.example.com',
     );
     expect(
-      await storage.read(key: WebhookService.webhookTemplateStorageKey),
-      '{"headline":"{{summary}}"}',
+      await storage.read(key: SecondBrainService.apiKeyStorageKey),
+      'my-secret-key',
     );
   });
 
