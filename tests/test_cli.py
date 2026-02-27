@@ -211,6 +211,78 @@ class TestScrapeCommand:
         assert rows[0]["posts_scraped"] == 1
         conn.close()
 
+    def test_scrape_deduplicates_same_text_different_url(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+        from noise_cancel.models import Post
+
+        config_path, data_dir = _write_config(tmp_path)
+        _create_session(data_dir)
+
+        posts = [
+            Post(
+                id="p1",
+                author_name="Alice",
+                post_text="  HELLO\nWORLD  ",
+                post_url="https://li.com/p1",
+            ),
+            Post(
+                id="p2",
+                author_name="Bob",
+                post_text="hello world",
+                post_url="https://li.com/p2",
+            ),
+        ]
+        mock = _mock_feed_scraper(posts)
+
+        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+            result = runner.invoke(app, ["scrape", "--config", str(config_path)])
+
+        assert result.exit_code == 0
+        assert "Scraped 1 posts (1 duplicates skipped)." in result.output
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        rows = conn.execute("SELECT id, post_url, content_hash FROM posts").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["content_hash"] is not None
+        conn.close()
+
+    def test_scrape_still_deduplicates_same_url(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+        from noise_cancel.models import Post
+
+        config_path, data_dir = _write_config(tmp_path)
+        _create_session(data_dir)
+
+        posts = [
+            Post(
+                id="p1",
+                author_name="Alice",
+                post_text="first post",
+                post_url="https://li.com/p1",
+            ),
+            Post(
+                id="p2",
+                author_name="Bob",
+                post_text="second post",
+                post_url="https://li.com/p1",
+            ),
+        ]
+        mock = _mock_feed_scraper(posts)
+
+        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+            result = runner.invoke(app, ["scrape", "--config", str(config_path)])
+
+        assert result.exit_code == 0
+        assert "Scraped 1 posts (1 duplicates skipped)." in result.output
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        rows = conn.execute("SELECT id, post_url FROM posts").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["post_url"] == "https://li.com/p1"
+        conn.close()
+
     def test_scrape_fails_without_session(self, tmp_path: Path):
         config_path, _ = _write_config(tmp_path)
         result = runner.invoke(app, ["scrape", "--config", str(config_path)])

@@ -16,6 +16,7 @@ class Post(BaseModel):
     author_url: str | None = None
     post_url: str | None = None
     post_text: str
+    content_hash: str | None = None
     media_type: str | None = None
     post_timestamp: str | None = None
     scraped_at: str = Field(default_factory=_now_iso)

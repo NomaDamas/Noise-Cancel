@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from noise_cancel.classifier.engine import ClassificationEngine
 from noise_cancel.config import AppConfig
+from noise_cancel.content_hash import compute_content_hash
 from noise_cancel.logger.repository import (
     get_unclassified_posts,
     insert_classification,
@@ -58,6 +59,7 @@ async def run_pipeline(
             posts_for_classification = []
             for post in scraped_posts[:limit]:
                 post.run_id = run_id
+                post.content_hash = compute_content_hash(post.post_text)
                 try:
                     insert_post(conn, post)
                 except sqlite3.IntegrityError:

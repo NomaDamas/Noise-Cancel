@@ -252,6 +252,7 @@ def scrape(
     import sqlite3
     import uuid
 
+    from noise_cancel.content_hash import compute_content_hash
     from noise_cancel.logger.repository import insert_post, insert_run_log, update_run_log
     from noise_cancel.models import RunLog
     from noise_cancel.scraper.auth import is_session_valid, load_session
@@ -307,6 +308,7 @@ def scrape(
     dupes = 0
     for post in posts:
         post.run_id = run_id
+        post.content_hash = compute_content_hash(post.post_text)
         try:
             insert_post(conn, post)
             saved += 1
