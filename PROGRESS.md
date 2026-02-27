@@ -67,3 +67,6 @@
 ## US-002 — PASS (2026-02-27T11:08:00Z)
 - Title: Refactor existing Slack delivery into a DeliveryPlugin subclass
 - Attempts: 1
+## US-003 — PASS (2026-02-27T11:12:03Z)
+- Title: Make CORS origins configurable via config.yaml
+- Attempts: 1

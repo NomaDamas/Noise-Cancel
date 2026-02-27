@@ -33,6 +33,7 @@ class ApiService {
        _client = client ?? http.Client();
 
   static const String serverUrlStorageKey = 'server_url';
+  static const String apiKeyStorageKey = 'api_key';
   static const String _defaultBaseUrl = 'http://localhost:8012';
 
   final String? _configuredBaseUrl;
@@ -50,7 +51,10 @@ class ApiService {
         'offset': '$offset',
       },
     );
-    final response = await _request(() => _client.get(uri), action: 'fetch posts');
+    final response = await _request(
+      (headers) => _client.get(uri, headers: headers),
+      action: 'fetch posts',
+    );
     final payload = _decodeJsonMap(response.body, action: 'fetch posts');
 
     final posts = payload['posts'];
@@ -73,13 +77,19 @@ class ApiService {
 
   Future<Map<String, dynamic>> archivePost(String classificationId) async {
     final uri = await _buildUri('/api/posts/${Uri.encodeComponent(classificationId)}/archive');
-    final response = await _request(() => _client.post(uri), action: 'archive post');
+    final response = await _request(
+      (headers) => _client.post(uri, headers: headers),
+      action: 'archive post',
+    );
     return _decodeJsonMap(response.body, action: 'archive post');
   }
 
   Future<void> deletePost(String classificationId) async {
     final uri = await _buildUri('/api/posts/${Uri.encodeComponent(classificationId)}/delete');
-    await _request(() => _client.post(uri), action: 'delete post');
+    await _request(
+      (headers) => _client.post(uri, headers: headers),
+      action: 'delete post',
+    );
   }
 
   Future<String> _resolveBaseUrl() async {
@@ -104,11 +114,12 @@ class ApiService {
   }
 
   Future<http.Response> _request(
-    Future<http.Response> Function() request, {
+    Future<http.Response> Function(Map<String, String> headers) request, {
     required String action,
   }) async {
     try {
-      final response = await request();
+      final headers = await _buildHeaders();
+      final response = await request(headers);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw ApiServiceException(
           'Request failed while trying to $action',
@@ -122,6 +133,18 @@ class ApiService {
       throw ApiServiceException('Network error while trying to $action: ${error.message}');
     } catch (error) {
       throw ApiServiceException('Unexpected error while trying to $action: $error');
+    }
+  }
+
+  Future<Map<String, String>> _buildHeaders() async {
+    try {
+      final apiKey = await _storage.read(key: apiKeyStorageKey);
+      if (apiKey == null || apiKey.trim().isEmpty) {
+        return const <String, String>{};
+      }
+      return <String, String>{'X-API-Key': apiKey.trim()};
+    } catch (error) {
+      throw ApiServiceException('Failed to read API key from secure storage: $error');
     }
   }
 

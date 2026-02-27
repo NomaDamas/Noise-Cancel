@@ -48,7 +48,7 @@
         "REQ-018: Tests verify custom CORS origins are applied and default fallback works"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -66,7 +66,7 @@
         "REQ-026: Flutter tests verify API key header is sent when configured"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

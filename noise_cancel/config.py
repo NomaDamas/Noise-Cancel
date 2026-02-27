@@ -55,6 +55,7 @@ _DEFAULT_DELIVERY: dict[str, Any] = {
 
 _DEFAULT_SERVER: dict[str, Any] = {
     "cors_origins": ["*"],
+    "api_key": "",
 }
 
 
@@ -167,6 +168,7 @@ delivery:
 server:
   cors_origins:
     - "*"
+  api_key: ""  # Optional API key for protecting /api/* routes
 """
 
 

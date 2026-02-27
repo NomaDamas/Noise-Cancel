@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from noise_cancel.config import AppConfig
 
 
-def _test_config(tmp_path: Path) -> AppConfig:
+def _test_config(tmp_path: Path, *, api_key: str = "") -> AppConfig:
     return AppConfig(
         general={"data_dir": str(tmp_path / "data"), "max_posts_per_run": 50, "language": "english"},
         scraper={"headless": True, "scroll_count": 1},
@@ -22,7 +22,7 @@ def _test_config(tmp_path: Path) -> AppConfig:
             "blacklist": {"keywords": [], "authors": []},
         },
         delivery={"method": "slack", "slack": {"include_categories": ["Read"]}},
-        server={"cors_origins": ["*"]},
+        server={"cors_origins": ["*"], "api_key": api_key},
     )
 
 
@@ -117,7 +117,7 @@ def test_lifespan_warns_when_wildcard_cors_is_active(tmp_path: Path, monkeypatch
 def test_docs_endpoint_is_available(tmp_path: Path, monkeypatch):
     from server.main import create_app
 
-    config = _test_config(tmp_path)
+    config = _test_config(tmp_path, api_key="test-key")
     conn = sqlite3.connect(":memory:", check_same_thread=False)
     monkeypatch.setattr("server.main.load_config", lambda: config)
     monkeypatch.setattr("server.main.get_connection", lambda db_path: conn)
@@ -126,5 +126,56 @@ def test_docs_endpoint_is_available(tmp_path: Path, monkeypatch):
     app = create_app()
     with TestClient(app) as client:
         response = client.get("/docs")
+        openapi = client.get("/openapi.json")
     assert response.status_code == 200
     assert "Swagger UI" in response.text
+    assert openapi.status_code == 200
+
+
+def test_api_key_auth_rejects_missing_and_wrong_key(tmp_path: Path, monkeypatch):
+    from server.main import create_app
+
+    config = _test_config(tmp_path, api_key="test-key")
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
+    monkeypatch.setattr("server.main.load_config", lambda: config)
+    monkeypatch.setattr("server.main.get_connection", lambda db_path: conn)
+    monkeypatch.setattr("server.main.apply_migrations", lambda db_conn: None)
+
+    app = create_app()
+
+    @app.get("/api/ping")
+    def ping() -> dict[str, bool]:
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        missing = client.get("/api/ping")
+        wrong = client.get("/api/ping", headers={"X-API-Key": "wrong-key"})
+        correct = client.get("/api/ping", headers={"X-API-Key": "test-key"})
+
+    assert missing.status_code == 401
+    assert wrong.status_code == 401
+    assert correct.status_code == 200
+    assert correct.json() == {"ok": True}
+
+
+def test_api_key_auth_is_disabled_when_key_not_configured(tmp_path: Path, monkeypatch):
+    from server.main import create_app
+
+    config = _test_config(tmp_path)
+    config.server = {"cors_origins": ["*"]}
+    conn = sqlite3.connect(":memory:", check_same_thread=False)
+    monkeypatch.setattr("server.main.load_config", lambda: config)
+    monkeypatch.setattr("server.main.get_connection", lambda db_path: conn)
+    monkeypatch.setattr("server.main.apply_migrations", lambda db_conn: None)
+
+    app = create_app()
+
+    @app.get("/api/ping")
+    def ping() -> dict[str, bool]:
+        return {"ok": True}
+
+    with TestClient(app) as client:
+        response = client.get("/api/ping")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}

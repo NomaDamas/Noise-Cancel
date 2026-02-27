@@ -13,6 +13,9 @@ class SettingsScreen extends StatefulWidget {
   static const ValueKey<String> serverUrlFieldKey = ValueKey<String>(
     'settings_server_url_field',
   );
+  static const ValueKey<String> serverApiKeyFieldKey = ValueKey<String>(
+    'settings_server_api_key_field',
+  );
   static const ValueKey<String> secondBrainEnabledToggleKey = ValueKey<String>(
     'settings_second_brain_enabled_toggle',
   );
@@ -37,6 +40,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const Color _cardColor = Color(0xFF1E1E1E);
 
   late final TextEditingController _serverUrlController;
+  late final TextEditingController _serverApiKeyController;
   late final TextEditingController _secondBrainUrlController;
   late final TextEditingController _secondBrainApiKeyController;
   bool _secondBrainEnabled = false;
@@ -46,6 +50,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _serverUrlController = TextEditingController();
+    _serverApiKeyController = TextEditingController();
     _secondBrainUrlController = TextEditingController();
     _secondBrainApiKeyController = TextEditingController();
     _loadSettings();
@@ -54,6 +59,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void dispose() {
     _serverUrlController.dispose();
+    _serverApiKeyController.dispose();
     _secondBrainUrlController.dispose();
     _secondBrainApiKeyController.dispose();
     super.dispose();
@@ -63,6 +69,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final values = await Future.wait<String?>(<Future<String?>>[
         widget._storage.read(key: ApiService.serverUrlStorageKey),
+        widget._storage.read(key: ApiService.apiKeyStorageKey),
         widget._storage.read(key: SecondBrainService.enabledStorageKey),
         widget._storage.read(key: SecondBrainService.urlStorageKey),
         widget._storage.read(key: SecondBrainService.apiKeyStorageKey),
@@ -74,9 +81,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       setState(() {
         _serverUrlController.text = values[0] ?? '';
-        _secondBrainEnabled = values[1] == 'true';
-        _secondBrainUrlController.text = values[2] ?? '';
-        _secondBrainApiKeyController.text = values[3] ?? '';
+        _serverApiKeyController.text = values[1] ?? '';
+        _secondBrainEnabled = values[2] == 'true';
+        _secondBrainUrlController.text = values[3] ?? '';
+        _secondBrainApiKeyController.text = values[4] ?? '';
       });
     } catch (_) {
       if (!mounted) {
@@ -98,6 +106,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         widget._storage.write(
           key: ApiService.serverUrlStorageKey,
           value: _serverUrlController.text.trim(),
+        ),
+        widget._storage.write(
+          key: ApiService.apiKeyStorageKey,
+          value: _serverApiKeyController.text.trim(),
         ),
         widget._storage.write(
           key: SecondBrainService.enabledStorageKey,
@@ -175,6 +187,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         decoration: const InputDecoration(
                           labelText: 'Server URL',
                           hintText: 'http://localhost:8012',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        key: SettingsScreen.serverApiKeyFieldKey,
+                        controller: _serverApiKeyController,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'API Key',
+                          hintText: 'Optional server API key',
                         ),
                       ),
                     ],
