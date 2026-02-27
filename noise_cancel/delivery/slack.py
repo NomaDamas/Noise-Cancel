@@ -11,6 +11,11 @@ from noise_cancel.delivery.blocks import build_post_blocks
 from noise_cancel.models import Classification, Post
 
 
+class SlackWebhookConfigError(ValueError):
+    def __init__(self) -> None:
+        super().__init__("Slack plugin requires `webhook_url` or SLACK_WEBHOOK_URL to be set.")
+
+
 class SlackPlugin(DeliveryPlugin):
     def deliver(
         self,
@@ -20,7 +25,14 @@ class SlackPlugin(DeliveryPlugin):
         return deliver_posts(posts, config)
 
     def validate_config(self, config: dict[str, Any]) -> None:
-        return None
+        webhook_url = config.get("webhook_url")
+        if isinstance(webhook_url, str) and webhook_url.strip():
+            return
+
+        if os.environ.get("SLACK_WEBHOOK_URL"):
+            return
+
+        raise SlackWebhookConfigError()
 
 
 def send_to_slack(webhook_url: str, blocks: list[dict], text: str = "") -> bool:
@@ -42,11 +54,11 @@ def deliver_posts(
     config: AppConfig,
 ) -> int:
     """Deliver classified posts to Slack. Return count of successfully delivered."""
-    webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
+    slack_config = config.delivery.get("slack", {})
+    webhook_url = slack_config.get("webhook_url") or os.environ.get("SLACK_WEBHOOK_URL")
     if not webhook_url:
         return 0
 
-    slack_config = config.delivery.get("slack", {})
     include_categories = slack_config.get("include_categories", [])
     language = config.general.get("language", "english")
 

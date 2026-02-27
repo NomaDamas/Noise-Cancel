@@ -15,7 +15,7 @@
         "REQ-005: Unit tests cover plugin loader, base class contract, and legacy config conversion"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
