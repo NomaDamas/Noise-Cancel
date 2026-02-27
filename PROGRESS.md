@@ -70,3 +70,9 @@
 ## US-003 — PASS (2026-02-27T11:12:03Z)
 - Title: Make CORS origins configurable via config.yaml
 - Attempts: 1
+## US-004 — PASS (2026-02-27T11:20:30Z)
+- Title: Add configurable API key authentication middleware to the server
+- Attempts: 1
+## US-005 — PASS (2026-02-27T11:29:55Z)
+- Title: Prevent duplicate posts from appearing in the feed via content hashing
+- Attempts: 1

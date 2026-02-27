@@ -84,7 +84,7 @@
         "REQ-034: Tests verify URL-based deduplication still works"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -99,7 +99,7 @@
         "REQ-039: Widget tests verify URL segments are created as clickable spans and non-URL text is plain"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

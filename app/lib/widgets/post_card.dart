@@ -50,14 +50,15 @@ class PostCard extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final opacity = (horizontalOffsetPercentage.abs() / 100).clamp(0.0, 1.0);
 
-    final overlayColor = horizontalOffsetPercentage < 0 ? _saveColor : _dropColor;
+    final overlayColor =
+        horizontalOffsetPercentage < 0 ? _saveColor : _dropColor;
     return Card(
       color: const Color(0xFF1E1E1E),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: opacity > 0
             ? BorderSide(
-                color: overlayColor.withOpacity(opacity),
+                color: overlayColor.withValues(alpha: opacity),
                 width: 2,
               )
             : BorderSide.none,
