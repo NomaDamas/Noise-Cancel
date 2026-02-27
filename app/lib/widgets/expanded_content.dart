@@ -1,8 +1,9 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:noise_cancel_app/models/post.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-class ExpandedContent extends StatelessWidget {
+class ExpandedContent extends StatefulWidget {
   const ExpandedContent({
     super.key,
     required this.post,
@@ -10,8 +11,33 @@ class ExpandedContent extends StatelessWidget {
 
   final Post post;
 
+  @override
+  State<ExpandedContent> createState() => _ExpandedContentState();
+}
+
+class _ExpandedContentState extends State<ExpandedContent> {
+  static final RegExp _urlPattern = RegExp(
+    r'https?:\/\/[^\s]+',
+    caseSensitive: false,
+  );
+
+  final List<TapGestureRecognizer> _urlRecognizers = <TapGestureRecognizer>[];
+
+  @override
+  void dispose() {
+    _disposeUrlRecognizers();
+    super.dispose();
+  }
+
+  void _disposeUrlRecognizers() {
+    for (final recognizer in _urlRecognizers) {
+      recognizer.dispose();
+    }
+    _urlRecognizers.clear();
+  }
+
   Future<void> _openAuthorProfile() async {
-    final uri = Uri.tryParse(post.authorUrl);
+    final uri = Uri.tryParse(widget.post.authorUrl);
     if (uri == null) {
       return;
     }
@@ -19,14 +45,82 @@ class ExpandedContent extends StatelessWidget {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
+  Future<void> _openPostUrl(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      return;
+    }
+
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  List<TextSpan> _buildPostTextSpans({
+    required String postText,
+    required TextStyle bodyStyle,
+    required TextStyle linkStyle,
+  }) {
+    _disposeUrlRecognizers();
+
+    final spans = <TextSpan>[];
+    var start = 0;
+
+    for (final match in _urlPattern.allMatches(postText)) {
+      if (match.start > start) {
+        spans.add(
+          TextSpan(
+            text: postText.substring(start, match.start),
+            style: bodyStyle,
+          ),
+        );
+      }
+
+      final url = match.group(0)!;
+      final recognizer = TapGestureRecognizer()
+        ..onTap = () {
+          _openPostUrl(url);
+        };
+      _urlRecognizers.add(recognizer);
+
+      spans.add(
+        TextSpan(
+          text: url,
+          style: linkStyle,
+          recognizer: recognizer,
+        ),
+      );
+      start = match.end;
+    }
+
+    if (start < postText.length) {
+      spans.add(
+        TextSpan(
+          text: postText.substring(start),
+          style: bodyStyle,
+        ),
+      );
+    }
+
+    if (spans.isEmpty) {
+      spans.add(TextSpan(text: postText, style: bodyStyle));
+    }
+
+    return spans;
+  }
+
   String _confidenceLabel() {
-    final percentage = (post.confidence * 100).round();
-    return '${post.category} $percentage%';
+    final percentage = (widget.post.confidence * 100).round();
+    return '${widget.post.category} $percentage%';
   }
 
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
+    final bodyStyle = textTheme.bodyMedium?.copyWith(height: 1.4) ??
+        const TextStyle(height: 1.4);
+    final linkStyle = bodyStyle.copyWith(
+      color: Colors.blue.shade300,
+      decoration: TextDecoration.underline,
+    );
 
     return SafeArea(
       top: false,
@@ -47,7 +141,7 @@ class ExpandedContent extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        post.authorName,
+                        widget.post.authorName,
                         style: textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w700,
                         ),
@@ -79,9 +173,15 @@ class ExpandedContent extends StatelessWidget {
             const SizedBox(height: 12),
             Expanded(
               child: SingleChildScrollView(
-                child: Text(
-                  post.postText,
-                  style: textTheme.bodyMedium?.copyWith(height: 1.4),
+                child: RichText(
+                  text: TextSpan(
+                    style: bodyStyle,
+                    children: _buildPostTextSpans(
+                      postText: widget.post.postText,
+                      bodyStyle: bodyStyle,
+                      linkStyle: linkStyle,
+                    ),
+                  ),
                 ),
               ),
             ),

@@ -252,6 +252,7 @@ def scrape(
     import sqlite3
     import uuid
 
+    from noise_cancel.content_hash import compute_content_hash
     from noise_cancel.logger.repository import insert_post, insert_run_log, update_run_log
     from noise_cancel.models import RunLog
     from noise_cancel.scraper.auth import is_session_valid, load_session
@@ -307,6 +308,7 @@ def scrape(
     dupes = 0
     for post in posts:
         post.run_id = run_id
+        post.content_hash = compute_content_hash(post.post_text)
         try:
             insert_post(conn, post)
             saved += 1
@@ -389,36 +391,9 @@ def classify(
         console.print(f"[green]Classified {len(results)} posts.[/green]")
 
 
-@app.command()
-def deliver(
-    config_path: str | None = typer.Option(None, "--config"),
-) -> None:
-    """Deliver classified posts to Slack."""
-    import json
-    import uuid
-
-    from noise_cancel.delivery.slack import deliver_posts
-    from noise_cancel.logger.repository import (
-        get_post_by_id,
-        get_undelivered_classifications,
-        insert_run_log,
-        mark_delivered,
-        update_run_log,
-    )
-    from noise_cancel.models import Classification, Post, RunLog
-
-    cfg = _get_config(config_path)
-    conn = _get_db(cfg)
-
-    run_id = uuid.uuid4().hex
-    run_log = RunLog(id=run_id, run_type="deliver")
-    insert_run_log(conn, run_log)
-
-    cls_rows = get_undelivered_classifications(conn)
-    if not cls_rows:
-        console.print("No undelivered classifications found.")
-        update_run_log(conn, run_id, status="completed", posts_delivered=0)
-        return
+def _build_delivery_pairs(conn, cls_rows: list[dict]) -> list[tuple]:
+    from noise_cancel.logger.repository import get_post_by_id
+    from noise_cancel.models import Classification, Post
 
     pairs: list[tuple[Post, Classification]] = []
     for row in cls_rows:
@@ -446,16 +421,79 @@ def deliver(
             delivered_at=row["delivered_at"],
         )
         pairs.append((post, cls))
+    return pairs
 
-    delivered_count = deliver_posts(pairs, cfg)
 
-    include_categories = cfg.delivery.get("slack", {}).get("include_categories", [])
+def _deliver_with_plugins(pairs: list[tuple], cfg: AppConfig) -> int:
+    from noise_cancel.delivery.loader import get_delivery_plugin_class
+
+    delivered_count = 0
+    plugins = cfg.delivery.get("plugins", [])
+    for plugin_config in plugins:
+        if not isinstance(plugin_config, dict):
+            continue
+        plugin_type = plugin_config.get("type")
+        if not isinstance(plugin_type, str) or not plugin_type.strip():
+            continue
+
+        plugin_class = get_delivery_plugin_class(plugin_type)
+        plugin = plugin_class()
+        plugin.validate_config(plugin_config)
+        delivered_count += plugin.deliver(pairs, cfg)
+    return delivered_count
+
+
+def _included_delivery_categories(cfg: AppConfig) -> set[str]:
+    categories: set[str] = set()
+    plugins = cfg.delivery.get("plugins", [])
+    for plugin_config in plugins:
+        if not isinstance(plugin_config, dict):
+            continue
+        include_categories = plugin_config.get("include_categories", [])
+        if not isinstance(include_categories, list):
+            continue
+        categories.update(category for category in include_categories if isinstance(category, str))
+    return categories
+
+
+@app.command()
+def deliver(
+    config_path: str | None = typer.Option(None, "--config"),
+) -> None:
+    """Deliver classified posts via configured delivery plugins."""
+    import uuid
+
+    from noise_cancel.logger.repository import (
+        get_undelivered_classifications,
+        insert_run_log,
+        mark_delivered,
+        update_run_log,
+    )
+    from noise_cancel.models import RunLog
+
+    cfg = _get_config(config_path)
+    conn = _get_db(cfg)
+
+    run_id = uuid.uuid4().hex
+    run_log = RunLog(id=run_id, run_type="deliver")
+    insert_run_log(conn, run_log)
+
+    cls_rows = get_undelivered_classifications(conn)
+    if not cls_rows:
+        console.print("No undelivered classifications found.")
+        update_run_log(conn, run_id, status="completed", posts_delivered=0)
+        return
+
+    pairs = _build_delivery_pairs(conn, cls_rows)
+    delivered_count = _deliver_with_plugins(pairs, cfg)
+
+    include_categories = _included_delivery_categories(cfg)
     for _, cls in pairs:
         if cls.category in include_categories:
             mark_delivered(conn, cls.id)
 
     update_run_log(conn, run_id, status="completed", posts_delivered=delivered_count)
-    console.print(f"[green]Delivered {delivered_count} posts to Slack.[/green]")
+    console.print(f"[green]Delivered {delivered_count} posts.[/green]")
 
 
 @app.command()

@@ -29,6 +29,7 @@ void main() {
       (tester) async {
     FlutterSecureStorage.setMockInitialValues(<String, String>{
       ApiService.serverUrlStorageKey: 'http://localhost:9000',
+      ApiService.apiKeyStorageKey: 'my-server-api-key',
       SecondBrainService.enabledStorageKey: 'true',
       SecondBrainService.urlStorageKey: 'https://my-brain.example.com',
       SecondBrainService.apiKeyStorageKey: 'my-secret-key',
@@ -40,6 +41,11 @@ void main() {
     expect(find.text('SecondBrain'), findsOneWidget);
     expect(find.text('http://localhost:9000'), findsOneWidget);
     expect(find.text('https://my-brain.example.com'), findsOneWidget);
+
+    expect(
+      find.byKey(SettingsScreen.serverApiKeyFieldKey),
+      findsOneWidget,
+    );
 
     // API key is obscured, so verify the field exists by key
     expect(
@@ -61,6 +67,10 @@ void main() {
       find.byKey(SettingsScreen.serverUrlFieldKey),
       'http://configured:8012/',
     );
+    await tester.enterText(
+      find.byKey(SettingsScreen.serverApiKeyFieldKey),
+      'server-secret',
+    );
     await tester.tap(find.byKey(SettingsScreen.secondBrainEnabledToggleKey));
     await tester.pump();
     await tester.enterText(
@@ -79,6 +89,10 @@ void main() {
     expect(
       await storage.read(key: ApiService.serverUrlStorageKey),
       'http://configured:8012/',
+    );
+    expect(
+      await storage.read(key: ApiService.apiKeyStorageKey),
+      'server-secret',
     );
     expect(
       await storage.read(key: SecondBrainService.enabledStorageKey),

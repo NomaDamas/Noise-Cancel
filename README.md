@@ -12,150 +12,37 @@ Two delivery modes:
 - **Mobile App** (new) -- Flutter cross-platform app with Tinder-style swipe UI. Swipe left to archive + forward to webhook, swipe right to dismiss.
 - **Slack** -- Incoming webhook delivers classified posts to a Slack channel.
 
-## Quick Start
+## Installation
 
-### 1. Install
+**If you use an AI coding agent** (Claude Code, Cursor, Copilot, etc.), give it [this installation guide](https://raw.githubusercontent.com/NomaDamas/Noise-Cancel/main/docs/installation.md) and ask it to set up NoiseCancel for you. The guide is written as an interactive agent workflow with decision points — your agent will ask you what you need and configure everything accordingly.
+
+**Manual setup** is below if you prefer doing it yourself.
+
+## Quick Start (Manual)
 
 Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone https://github.com/vkehfdl1/noise-cancel.git
+git clone https://github.com/NomaDamas/Noise-Cancel.git
 cd noise-cancel
 make install
 uv run playwright install chromium
+uv run noise-cancel init       # generates ~/.config/noise-cancel/config.yaml
 ```
 
-### 2. Set up Slack webhook
-
-noise-cancel delivers classified posts to Slack via Incoming Webhooks. Follow the steps below to set one up.
-
-**Step A. Create a Slack App**
-
-1. Go to [https://api.slack.com/apps](https://api.slack.com/apps)
-2. Click **Create New App**
-3. Select **From scratch**
-4. Enter any App Name (e.g. `noise-cancel`), select your workspace
-5. Click **Create App**
-
-**Step B. Enable Incoming Webhooks**
-
-1. In the left sidebar, click **Incoming Webhooks**
-2. Toggle it **On** (top right)
-3. Click **Add New Webhook to Workspace** at the bottom
-4. Select a channel to receive posts (e.g. `#linkedin-feed`) → click **Allow**
-5. Copy the generated **Webhook URL** (`https://hooks.slack.com/services/T.../B.../...`)
-
-**Step C. Set environment variables**
+Set environment variables:
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."                              # Anthropic API key
-export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T.../B.../..."  # Webhook URL from above
+export ANTHROPIC_API_KEY="sk-ant-..."
+export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/..."  # optional, only if using Slack
 ```
 
-> **Tip**: Add these to `~/.zshrc` or `~/.bashrc` so they persist across sessions.
->
-> ```bash
-> echo 'export ANTHROPIC_API_KEY="sk-ant-..."' >> ~/.zshrc
-> echo 'export SLACK_WEBHOOK_URL="https://hooks.slack.com/..."' >> ~/.zshrc
-> source ~/.zshrc
-> ```
-
-### 3. Generate config
+Login to LinkedIn and run:
 
 ```bash
-noise-cancel init
+uv run noise-cancel login      # opens browser for manual LinkedIn login
+uv run noise-cancel run        # scrape -> classify -> deliver
 ```
-
-This creates `~/.config/noise-cancel/config.yaml` with sensible defaults. Open it and customize:
-
-```yaml
-classifier:
-  categories:
-    - name: Read
-      description: "Worth reading - valuable insights, relevant industry news, useful knowledge"
-      emoji: ":fire:"
-    - name: Skip
-      description: "Not worth reading - engagement bait, humble brag, ads, spam, irrelevant"
-      emoji: ":mute:"
-```
-
-**Tip**: Edit the `description` fields to match your interests. The more specific you are, the better Claude classifies. For example:
-
-```yaml
-    - name: Read
-      description: "AI/ML research, system design, open source releases, Python ecosystem news"
-    - name: Skip
-      description: "Engagement bait, humble brags, motivational quotes, crypto shilling, recruitment spam"
-```
-
-### 4. Login to LinkedIn
-
-```bash
-noise-cancel login
-```
-
-A browser opens for manual LinkedIn login. Session cookies are encrypted (Fernet) and saved locally.
-
-#### Running on a remote / headless server
-
-`noise-cancel login` requires a GUI browser. On a server without a display, you **cannot** simply transfer cookies from another machine — LinkedIn binds sessions to the originating IP and device fingerprint, and will invalidate the session (and log you out everywhere) if it detects reuse from a different environment.
-
-The solution is to run a virtual display + VNC server so you can open a real browser on the server itself.
-
-**One-time setup:**
-
-```bash
-# Install Xvfb (virtual display) and x11vnc (VNC server)
-sudo apt-get install -y xvfb x11vnc
-
-# Set a VNC password
-x11vnc -storepasswd /tmp/x11vnc.pw
-
-# Start virtual display and VNC server
-Xvfb :99 -screen 0 1920x1080x24 &
-x11vnc -display :99 -rfbauth /tmp/x11vnc.pw -listen localhost -rfbport 5900 -forever &
-```
-
-**From your local machine:**
-
-```bash
-# Open an SSH tunnel (adjust port/user/host as needed)
-ssh -L 5900:localhost:5900 user@your-server
-
-# Connect with a VNC client
-# Mac:     open vnc://localhost:5900
-# Windows: use RealVNC Viewer → localhost:5900
-# Linux:   vncviewer localhost:5900
-```
-
-**In the SSH shell (with the tunnel open):**
-
-```bash
-DISPLAY=:99 noise-cancel login
-```
-
-A Chromium window will appear in your VNC client. Log in to LinkedIn, and the session is saved. After login, stop the VNC server and virtual display:
-
-```bash
-kill $(pgrep x11vnc)
-kill $(pgrep Xvfb)
-```
-
-From this point on, `noise-cancel run` works headlessly — the session was created on the same IP, so LinkedIn won't flag it. Re-run the VNC setup when the session expires (`session_ttl_days`, default: 7 days).
-
-### 5. Run
-
-```bash
-# Full pipeline: scrape -> classify -> deliver
-noise-cancel run
-
-# Or step by step
-noise-cancel scrape       # Scrape feed posts
-noise-cancel classify     # Classify with Claude
-noise-cancel deliver      # Send "Read" posts to Slack
-```
-
-That's it. "Read" posts arrive in your Slack channel with author, preview, confidence score, and feedback buttons.
 
 ---
 

@@ -51,6 +51,29 @@ noise-cancel/
 4. **Do not break existing code**: The `noise_cancel/` package and all existing tests must continue to work. The CLI (`noise-cancel` command) must remain functional.
 5. **Raw SQL only**: Use `sqlite3` directly — no ORM, no SQLAlchemy.
 6. **Pydantic models**: All data classes must extend `pydantic.BaseModel`.
+7. **Backward compatibility**: Config changes must support old format as fallback. Users who upgrade should not need to rewrite their config.yaml.
+
+## Current MVP Scope (prd.json stories)
+
+The current iteration implements these features for public launch:
+
+1. **Delivery plugin architecture (US-001 + US-002)**: Refactor `noise_cancel/delivery/` from monolithic Slack-only to a pluggable system. Abstract base class `DeliveryPlugin` in `base.py`, Slack becomes `SlackPlugin`. Config format changes from `delivery.method`/`delivery.slack` to `delivery.plugins` list. Legacy format must auto-convert.
+
+2. **Server config section (US-003)**: Add `server` section to `AppConfig` for `cors_origins`. Requires adding `_DEFAULT_SERVER` to `config.py` and a new `server` field on `AppConfig`. `create_app()` must load config to read CORS settings before constructing middleware.
+
+3. **API Key auth (US-004)**: Depends on US-003's `server` config section. Add `server.api_key` field. FastAPI middleware checks `X-API-Key` header. Flutter `ApiService` and `SettingsScreen` updated to store and send API key.
+
+4. **Deduplication (US-005)**: New migration `004_add_content_hash.sql`. SHA-256 hash of normalized post text. Unique index on `content_hash` (NULL allowed for existing rows).
+
+5. **Clickable URLs (US-006)**: Flutter `expanded_content.dart` — replace `Text` with `RichText`/`Text.rich` using `TextSpan` with `TapGestureRecognizer` for detected URLs.
+
+6. **Installation guide (US-007)**: `docs/installation.md` + README update. Must be done last.
+
+### Dependency chain
+- US-001 → US-002 (plugin base before Slack refactor)
+- US-003 → US-004 (server config before API key)
+- US-005, US-006 are independent
+- US-007 is last (documents all changes)
 
 ## DB Schema (after all migrations)
 

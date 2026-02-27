@@ -154,4 +154,54 @@ void main() {
       throwsA(isA<ApiServiceException>()),
     );
   });
+
+  test('includes X-API-Key header in requests when configured', () async {
+    FlutterSecureStorage.setMockInitialValues(<String, String>{
+      ApiService.serverUrlStorageKey: 'http://localhost:8012',
+      ApiService.apiKeyStorageKey: 'test-api-key',
+    });
+
+    final observedHeaders = <Map<String, String>>[];
+    final client = MockClient((request) async {
+      observedHeaders.add(Map<String, String>.from(request.headers));
+
+      if (request.url.path.endsWith('/archive')) {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'status': 'archived',
+          }),
+          200,
+        );
+      }
+      if (request.url.path.endsWith('/delete')) {
+        return http.Response(
+          jsonEncode(<String, dynamic>{
+            'status': 'deleted',
+          }),
+          200,
+        );
+      }
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'posts': <Map<String, dynamic>>[],
+          'total': 0,
+          'has_more': false,
+        }),
+        200,
+      );
+    });
+
+    final service = ApiService(client: client);
+    await service.fetchPosts();
+    await service.archivePost('cls-1');
+    await service.deletePost('cls-1');
+
+    expect(observedHeaders, hasLength(3));
+    for (final headers in observedHeaders) {
+      expect(
+        headers['X-API-Key'] ?? headers['x-api-key'],
+        'test-api-key',
+      );
+    }
+  });
 }

@@ -211,6 +211,78 @@ class TestScrapeCommand:
         assert rows[0]["posts_scraped"] == 1
         conn.close()
 
+    def test_scrape_deduplicates_same_text_different_url(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+        from noise_cancel.models import Post
+
+        config_path, data_dir = _write_config(tmp_path)
+        _create_session(data_dir)
+
+        posts = [
+            Post(
+                id="p1",
+                author_name="Alice",
+                post_text="  HELLO\nWORLD  ",
+                post_url="https://li.com/p1",
+            ),
+            Post(
+                id="p2",
+                author_name="Bob",
+                post_text="hello world",
+                post_url="https://li.com/p2",
+            ),
+        ]
+        mock = _mock_feed_scraper(posts)
+
+        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+            result = runner.invoke(app, ["scrape", "--config", str(config_path)])
+
+        assert result.exit_code == 0
+        assert "Scraped 1 posts (1 duplicates skipped)." in result.output
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        rows = conn.execute("SELECT id, post_url, content_hash FROM posts").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["content_hash"] is not None
+        conn.close()
+
+    def test_scrape_still_deduplicates_same_url(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+        from noise_cancel.models import Post
+
+        config_path, data_dir = _write_config(tmp_path)
+        _create_session(data_dir)
+
+        posts = [
+            Post(
+                id="p1",
+                author_name="Alice",
+                post_text="first post",
+                post_url="https://li.com/p1",
+            ),
+            Post(
+                id="p2",
+                author_name="Bob",
+                post_text="second post",
+                post_url="https://li.com/p1",
+            ),
+        ]
+        mock = _mock_feed_scraper(posts)
+
+        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+            result = runner.invoke(app, ["scrape", "--config", str(config_path)])
+
+        assert result.exit_code == 0
+        assert "Scraped 1 posts (1 duplicates skipped)." in result.output
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        rows = conn.execute("SELECT id, post_url FROM posts").fetchall()
+        assert len(rows) == 1
+        assert rows[0]["post_url"] == "https://li.com/p1"
+        conn.close()
+
     def test_scrape_fails_without_session(self, tmp_path: Path):
         config_path, _ = _write_config(tmp_path)
         result = runner.invoke(app, ["scrape", "--config", str(config_path)])
@@ -469,7 +541,10 @@ class TestDeliverCommand:
         _insert_classification(conn, "c1", "p1", "Read", delivered=0)
         conn.close()
 
-        with patch("noise_cancel.delivery.slack.deliver_posts", return_value=1) as mock_deliver:
+        with (
+            patch.dict("os.environ", {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/test"}, clear=True),
+            patch("noise_cancel.delivery.slack.SlackPlugin.deliver", return_value=1) as mock_deliver,
+        ):
             result = runner.invoke(app, ["deliver", "--config", str(config_path)])
 
         assert result.exit_code == 0
@@ -494,7 +569,10 @@ class TestDeliverCommand:
         _insert_classification(conn, "c1", "p1", "Read", delivered=0)
         conn.close()
 
-        with patch("noise_cancel.delivery.slack.deliver_posts", return_value=1):
+        with (
+            patch.dict("os.environ", {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/test"}, clear=True),
+            patch("noise_cancel.delivery.slack.SlackPlugin.deliver", return_value=1),
+        ):
             result = runner.invoke(app, ["deliver", "--config", str(config_path)])
 
         assert result.exit_code == 0
@@ -506,6 +584,40 @@ class TestDeliverCommand:
         assert rows[0]["status"] == "completed"
         assert rows[0]["posts_delivered"] == 1
         conn.close()
+
+    def test_deliver_dispatches_all_configured_plugins(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        data_dir = tmp_path / "data"
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text(
+            "\n".join([
+                "general:",
+                f"  data_dir: {data_dir}",
+                "delivery:",
+                "  plugins:",
+                "    - type: slack",
+                "      include_categories: [Read]",
+                "      webhook_url: https://hooks.slack.com/services/one",
+                "    - type: slack",
+                "      include_categories: [Read]",
+                "      webhook_url: https://hooks.slack.com/services/two",
+            ])
+            + "\n"
+        )
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        _insert_post(conn, "p1", "Alice", "Great post")
+        _insert_classification(conn, "c1", "p1", "Read", delivered=0)
+        conn.close()
+
+        with patch("noise_cancel.delivery.slack.SlackPlugin.deliver", side_effect=[1, 1]) as mock_deliver:
+            result = runner.invoke(app, ["deliver", "--config", str(config_path)])
+
+        assert result.exit_code == 0
+        assert "Delivered 2 posts" in result.output
+        assert mock_deliver.call_count == 2
 
     def test_deliver_no_undelivered(self, tmp_path: Path):
         from noise_cancel.database import apply_migrations, get_connection
@@ -840,7 +952,8 @@ class TestRunCommand:
         with (
             patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock_scraper),
             patch("noise_cancel.classifier.engine.ClassificationEngine.classify_posts", return_value=mock_cls),
-            patch("noise_cancel.delivery.slack.deliver_posts", return_value=1),
+            patch.dict("os.environ", {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/test"}, clear=True),
+            patch("noise_cancel.delivery.slack.SlackPlugin.deliver", return_value=1),
         ):
             result = runner.invoke(app, ["run", "--config", str(config_path)])
 
@@ -891,7 +1004,7 @@ class TestRunCommand:
         with (
             patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock_scraper),
             patch("noise_cancel.classifier.engine.ClassificationEngine.classify_posts", return_value=mock_cls),
-            patch("noise_cancel.delivery.slack.deliver_posts", return_value=0) as mock_deliver,
+            patch("noise_cancel.delivery.slack.SlackPlugin.deliver", return_value=0) as mock_deliver,
         ):
             result = runner.invoke(app, ["run", "--config", str(config_path), "--dry-run"])
 

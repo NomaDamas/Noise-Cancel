@@ -41,6 +41,21 @@ Future<void> _pumpPostCard(
   );
 }
 
+TextSpan _findExpandedBodySpan(WidgetTester tester, String postText) {
+  final richTextFinder = find.byWidgetPredicate((widget) {
+    if (widget is! RichText) {
+      return false;
+    }
+
+    final span = widget.text;
+    return span is TextSpan && span.toPlainText() == postText;
+  });
+
+  expect(richTextFinder, findsOneWidget);
+  final richText = tester.widget<RichText>(richTextFinder);
+  return richText.text as TextSpan;
+}
+
 void main() {
   testWidgets('renders author summary and both action buttons when link exists',
       (
@@ -57,13 +72,14 @@ void main() {
   testWidgets('opens ExpandedContent bottom sheet with full post text', (
     WidgetTester tester,
   ) async {
+    const postText = 'This is the full post body text';
     await _pumpPostCard(tester, _buildPost());
 
     await tester.tap(find.text('더보기'));
     await tester.pumpAndSettle();
 
     expect(find.byType(ExpandedContent), findsOneWidget);
-    expect(find.text('This is the full post body text'), findsOneWidget);
+    expect(_findExpandedBodySpan(tester, postText).toPlainText(), postText);
   });
 
   testWidgets('hides LinkedIn button when postUrl is null',
@@ -105,7 +121,7 @@ void main() {
 
     final card = tester.widget<Card>(find.byType(Card));
     final shape = card.shape as RoundedRectangleBorder;
-    expect(shape.side.color, const Color(0xFF4CAF50).withOpacity(0.5));
+    expect(shape.side.color, const Color(0xFF4CAF50).withValues(alpha: 0.5));
     expect(shape.side.width, 2);
   });
 
@@ -116,7 +132,7 @@ void main() {
 
     final card = tester.widget<Card>(find.byType(Card));
     final shape = card.shape as RoundedRectangleBorder;
-    expect(shape.side.color, const Color(0xFFEF5350).withOpacity(0.5));
+    expect(shape.side.color, const Color(0xFFEF5350).withValues(alpha: 0.5));
     expect(shape.side.width, 2);
   });
 

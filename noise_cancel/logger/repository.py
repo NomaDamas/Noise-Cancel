@@ -12,8 +12,8 @@ def insert_post(conn: sqlite3.Connection, post: Post) -> None:
     conn.execute(
         """INSERT INTO posts
            (id, platform, author_name, author_url, post_url, post_text,
-            media_type, post_timestamp, scraped_at, run_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            content_hash, media_type, post_timestamp, scraped_at, run_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             d["id"],
             d["platform"],
@@ -21,6 +21,7 @@ def insert_post(conn: sqlite3.Connection, post: Post) -> None:
             d["author_url"],
             d["post_url"],
             d["post_text"],
+            d["content_hash"],
             d["media_type"],
             d["post_timestamp"],
             d["scraped_at"],
