@@ -9,7 +9,7 @@ def test_default_config_creation():
     config = AppConfig()
     assert config.general["max_posts_per_run"] == 50
     assert config.classifier["model"] == "claude-sonnet-4-6"
-    assert config.delivery["method"] == "slack"
+    assert config.delivery["plugins"][0]["type"] == "slack"
 
 
 def test_load_config_from_yaml(tmp_path: Path):
@@ -53,3 +53,68 @@ def test_generate_default_config_is_loadable(tmp_path: Path):
     config = load_config(str(path))
     assert config.classifier["model"] == "claude-sonnet-4-6"
     assert config.delivery["slack"]["include_categories"] == ["Read"]
+    assert config.delivery["plugins"][0]["type"] == "slack"
+
+
+def test_load_config_supports_plugins_format(tmp_path: Path):
+    config_data = {
+        "delivery": {
+            "plugins": [
+                {
+                    "type": "slack",
+                    "include_categories": ["Read", "Skip"],
+                    "include_reasoning": False,
+                }
+            ]
+        }
+    }
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.dump(config_data))
+
+    config = load_config(str(config_file))
+    plugins = config.delivery["plugins"]
+
+    assert len(plugins) == 1
+    assert plugins[0]["type"] == "slack"
+    assert plugins[0]["include_categories"] == ["Read", "Skip"]
+    assert plugins[0]["include_reasoning"] is False
+
+
+def test_load_config_converts_legacy_delivery_to_plugins(tmp_path: Path):
+    config_data = {
+        "delivery": {
+            "method": "slack",
+            "slack": {
+                "include_categories": ["Read", "Skip"],
+                "include_reasoning": False,
+            },
+        }
+    }
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(yaml.dump(config_data))
+
+    config = load_config(str(config_file))
+    plugins = config.delivery["plugins"]
+
+    assert len(plugins) == 1
+    assert plugins[0]["type"] == "slack"
+    assert plugins[0]["include_categories"] == ["Read", "Skip"]
+    assert plugins[0]["include_reasoning"] is False
+
+
+def test_app_config_converts_legacy_delivery_to_plugins():
+    config = AppConfig(
+        delivery={
+            "method": "slack",
+            "slack": {
+                "include_categories": ["Read"],
+                "include_reasoning": True,
+                "max_text_preview": 300,
+            },
+        }
+    )
+
+    plugins = config.delivery["plugins"]
+    assert len(plugins) == 1
+    assert plugins[0]["type"] == "slack"
+    assert plugins[0]["include_categories"] == ["Read"]

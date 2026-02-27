@@ -1,195 +1,164 @@
-# PRD
+# PRD — NoiseCancel MVP Public Launch
 
 ## Project
-- Name: NoiseCancel Tinder-style Mobile App
-- Branch: Feature/#6
-- Description: Transform the CLI-only NoiseCancel tool into a monorepo with a FastAPI REST API server and Flutter cross-platform mobile app. Users swipe through AI-classified LinkedIn posts in a Tinder-style UI. Swipe left to archive (save + forward to webhook from app). Swipe right to delete (never show again). The existing Python core (scraper, classifier, DB, models) is reused as-is. Webhook forwarding is handled client-side by the Flutter app — no webhook config in the server DB.
+- Name: NoiseCancel MVP
+- Branch: main
+- Description: Implement all MVP features required for public launch of NoiseCancel — an AI-powered LinkedIn feed noise filter for self-hosted users. Covers delivery plugin architecture, server security (API key auth + CORS config), duplicate post deduplication, clickable URLs in the Flutter app, and a comprehensive installation guide.
 
 ## User Stories
 
-### US-001
-- Title: Add swipe_status to classifications DB schema
+### US-001: Delivery plugin base architecture
+- Title: Refactor delivery system to pluggable architecture with abstract base class
 - Priority: 1
-- Description: Create a new SQL migration that adds `swipe_status` and `swiped_at` columns to the existing `classifications` table. The `swipe_status` column tracks whether the user has swiped on a post ('pending', 'archived', 'deleted'). Add indexes for efficient feed queries.
+- Description: |
+    Extract a `DeliveryPlugin` abstract base class in `noise_cancel/delivery/base.py`.
+    Define the plugin contract: `deliver()` and `validate_config()` methods.
+    Create a plugin registry/loader that resolves plugins by `type` string from config.
+    Update `_DEFAULT_DELIVERY` in `noise_cancel/config.py` to use new `plugins` list format:
+    ```yaml
+    delivery:
+      plugins:
+        - type: slack
+          webhook_url: ${SLACK_WEBHOOK_URL}
+          include_categories: [Read]
+          include_reasoning: true
+          max_text_preview: 300
+    ```
+    The old `delivery.method` / `delivery.slack` format must still work as fallback for backward compatibility during transition.
 - Acceptance Criteria:
-  - REQ-001 File `migrations/003_add_swipe_status.sql` exists with `ALTER TABLE classifications ADD COLUMN swipe_status TEXT NOT NULL DEFAULT 'pending'` and `ALTER TABLE classifications ADD COLUMN swiped_at TEXT`
-  - REQ-002 Migration creates indexes: `idx_classifications_swipe` on `swipe_status` and `idx_classifications_category` on `category`
-  - REQ-003 Existing `noise_cancel/database.py` migration system picks up and applies 003 without changes
-  - REQ-004 All existing tests in `tests/` still pass after migration is applied
+  - REQ-001: `noise_cancel/delivery/base.py` exists with `DeliveryPlugin` ABC defining `deliver(posts, config) -> int` and `validate_config(config) -> None`
+  - REQ-002: A plugin loader function exists that takes a plugin `type` string and returns the corresponding `DeliveryPlugin` subclass
+  - REQ-003: Config supports `delivery.plugins` as a list of plugin configs, each with a `type` field
+  - REQ-004: Legacy `delivery.method`/`delivery.slack` config format still works (auto-converted to plugins list internally)
+  - REQ-005: Unit tests cover plugin loader, base class contract, and legacy config conversion
 
-### US-002
-- Title: Add feed query and swipe status repository functions
+### US-002: Slack delivery plugin refactor
+- Title: Refactor existing Slack delivery into a DeliveryPlugin subclass
 - Priority: 2
-- Description: Add new functions to `noise_cancel/logger/repository.py` for querying the post feed (joined posts+classifications filtered by category and swipe_status), counting total feed posts, and updating swipe status. These are the data layer for the server API.
+- Description: |
+    Convert `noise_cancel/delivery/slack.py` to implement `DeliveryPlugin`.
+    The `SlackPlugin.deliver()` method replaces the current `deliver_posts()` function.
+    `SlackPlugin.validate_config()` checks for webhook_url presence.
+    Update `noise_cancel/cli.py` `deliver` command to use the plugin system — iterate over configured plugins and call `deliver()` on each.
+    The `deliver` command's behavior must remain identical from the user's perspective.
 - Acceptance Criteria:
-  - REQ-005 `get_posts_for_feed(conn, category='Read', swipe_status='pending', limit=20, offset=0)` returns list of dicts with joined post+classification fields (id, classification_id, author_name, author_url, post_url, post_text, summary, category, confidence, reasoning, classified_at, swipe_status), ordered by `classified_at DESC`
-  - REQ-006 `count_posts_for_feed(conn, category='Read', swipe_status='pending')` returns total integer count for pagination
-  - REQ-007 `update_swipe_status(conn, classification_id, status)` updates `swipe_status` and sets `swiped_at` to current UTC ISO timestamp; raises ValueError if status not in ('pending', 'archived', 'deleted')
-  - REQ-008 Tests written in `tests/test_logger.py` cover all three functions including edge cases (empty results, invalid status, nonexistent classification_id)
-  - REQ-009 `make check` passes (ruff lint + format + ty check + deptry)
+  - REQ-006: `SlackPlugin` class in `noise_cancel/delivery/slack.py` extends `DeliveryPlugin`
+  - REQ-007: `SlackPlugin.deliver()` sends posts to Slack webhook and returns delivered count (same behavior as current `deliver_posts()`)
+  - REQ-008: `SlackPlugin.validate_config()` raises if webhook_url is missing from plugin config and env var `SLACK_WEBHOOK_URL` is not set
+  - REQ-009: CLI `deliver` command uses plugin system to dispatch to all configured plugins
+  - REQ-010: CLI `run` command (full pipeline) still works end-to-end with the refactored delivery
+  - REQ-011: All existing delivery tests pass (updated to new plugin interface)
+  - REQ-012: Server `POST /api/pipeline/run` still works with refactored delivery
 
-### US-003
-- Title: FastAPI server skeleton with lifespan and CORS
+### US-003: Configurable CORS origins
+- Title: Make CORS origins configurable via config.yaml
 - Priority: 3
-- Description: Create the `server/` Python package with FastAPI app factory. The server loads existing `AppConfig`, connects to SQLite via existing `database.py`, applies migrations on startup, and includes CORS middleware for the Flutter app. Add `fastapi` and `uvicorn` to project dependencies.
+- Description: |
+    Replace hardcoded `allow_origins=["*"]` in `server/main.py` with a configurable list.
+    Add a `server` section to the config system (new `_DEFAULT_SERVER` dict in `config.py`).
+    Read `server.cors_origins` from config. Default to `["*"]` if not set (backward compatible).
+    Log a warning at startup if wildcard origins are used.
+    The `create_app()` function needs access to the config at construction time, so it must accept config as parameter or the lifespan must configure CORS differently.
 - Acceptance Criteria:
-  - REQ-010 `server/__init__.py`, `server/main.py`, `server/dependencies.py` exist
-  - REQ-011 `server/main.py` exports a FastAPI `app` created by `create_app()` factory; uses async lifespan context manager to load config via `noise_cancel.config.load_config()`, get DB connection via `noise_cancel.database.get_connection()`, apply migrations via `noise_cancel.database.apply_migrations()`, store on `app.state`
-  - REQ-012 CORS middleware allows all origins, methods, and headers
-  - REQ-013 `server/dependencies.py` provides `get_db(request)` and `get_config(request)` FastAPI dependency functions that read from `request.app.state`
-  - REQ-014 `pyproject.toml` updated: `"fastapi>=0.115.0"` and `"uvicorn[standard]>=0.34.0"` added to dependencies; `"server"` added to `tool.hatch.build.targets.wheel.packages`; `"tests_server"` added to `tool.pytest.ini_options.testpaths`
-  - REQ-015 `uv run uvicorn server.main:app` starts without errors and `/docs` returns Swagger UI
-  - REQ-016 Existing CLI `noise-cancel --help` still works; all existing tests pass
+  - REQ-013: `config.yaml` supports a `server` section with `cors_origins` as a list of origin strings
+  - REQ-014: `noise_cancel/config.py` has `_DEFAULT_SERVER` defaults and `AppConfig` includes `server` field
+  - REQ-015: `server/main.py` reads `cors_origins` from config and passes to `CORSMiddleware`
+  - REQ-016: Default value is `["*"]` when `server.cors_origins` is not configured
+  - REQ-017: A log warning is emitted at server startup when wildcard origins are active
+  - REQ-018: Tests verify custom CORS origins are applied and default fallback works
 
-### US-004
-- Title: API response schemas
+### US-004: API Key authentication for REST API
+- Title: Add configurable API key authentication middleware to the server
 - Priority: 4
-- Description: Create Pydantic request/response models in `server/schemas.py` for all API endpoints. These mirror the existing `noise_cancel/models.py` patterns.
+- Description: |
+    Add `server.api_key` to the `server` config section (introduced in US-003).
+    If set, all `/api/*` requests require `X-API-Key` header matching the configured key.
+    Implement as FastAPI dependency or middleware. Return 401 if key missing/wrong.
+    If `server.api_key` is empty or absent, auth is disabled (backward compatible).
+    `/docs` and `/openapi.json` should remain accessible without auth.
+    Update Flutter `ApiService` to read API key from `flutter_secure_storage` and send `X-API-Key` header on all requests.
+    Add API key field to Flutter `SettingsScreen`.
 - Acceptance Criteria:
-  - REQ-017 `server/schemas.py` defines: `PostResponse` (id, classification_id, author_name, author_url, post_url, post_text, summary, category, confidence, reasoning, classified_at, swipe_status — all str except confidence: float), `PostListResponse` (posts: list[PostResponse], total: int, has_more: bool), `ArchiveResponse` (status: str, classification_id: str), `DeleteResponse` (status: str, classification_id: str), `PipelineRunRequest` (limit: int = 50, skip_scrape: bool = False), `PipelineRunResponse` (run_id: str, status: str, message: str), `PipelineStatusResponse` (with latest run fields)
-  - REQ-018 All schema classes are Pydantic BaseModel subclasses
-  - REQ-019 `make check` passes
+  - REQ-019: `config.yaml` `server` section supports `api_key` string field
+  - REQ-020: When `server.api_key` is set, requests to `/api/*` without valid `X-API-Key` header return 401
+  - REQ-021: When `server.api_key` is empty/absent, all requests pass through (no auth)
+  - REQ-022: `/docs` and `/openapi.json` are accessible without API key regardless of config
+  - REQ-023: Flutter `ApiService` reads `api_key` from secure storage and includes `X-API-Key` header in all requests
+  - REQ-024: Flutter `SettingsScreen` has an API Key input field (obscured) that saves to secure storage
+  - REQ-025: Server tests verify 401 on missing/wrong key, 200 on correct key, and pass-through when auth disabled
+  - REQ-026: Flutter tests verify API key header is sent when configured
 
-### US-005
-- Title: GET /api/posts feed endpoint
+### US-005: Duplicate post deduplication
+- Title: Prevent duplicate posts from appearing in the feed via content hashing
 - Priority: 5
-- Description: Implement the main feed endpoint that the Flutter app calls to fetch posts for the swipe UI. Returns paginated, filtered posts joined with their classifications.
-- Acceptance Criteria:
-  - REQ-020 `server/routers/__init__.py` and `server/routers/posts.py` exist
-  - REQ-021 `GET /api/posts` accepts query params: `category` (str, default "Read"), `swipe_status` (str, default "pending"), `limit` (int, default 20), `offset` (int, default 0)
-  - REQ-022 Response is `PostListResponse` with `has_more` computed from total vs offset+limit
-  - REQ-023 Router is included in the FastAPI app via `server/main.py`
-  - REQ-024 Test in `tests_server/test_posts_router.py` using FastAPI `TestClient`: seed DB with posts+classifications, verify response shape, verify filtering by category and swipe_status, verify pagination
-  - REQ-025 `make check` and `make test` pass
+- Description: |
+    Currently `posts.post_url` has a UNIQUE constraint, so URL-based duplicates are caught at insert time
+    with `IntegrityError` (already handled in `cli.py:scrape`). However posts with different URLs
+    but identical content can still appear.
 
-### US-006
-- Title: GET /api/posts/{classification_id} detail endpoint
+    Add content-hash-based deduplication:
+    - Compute SHA-256 hash of normalized `post_text` (strip whitespace, lowercase) before insert
+    - Store hash in a new `content_hash` column on `posts` table (migration 004)
+    - Skip insert if a post with the same `content_hash` already exists
+    - Add unique index on `content_hash` for fast lookup (allowing NULL for existing rows)
+    - Update the `Post` model in `noise_cancel/models.py` to include `content_hash` field
+    - Update `insert_post()` in repository to handle `content_hash`
+    - Update scraper CLI to compute hash before insert
+- Acceptance Criteria:
+  - REQ-027: Migration `004_add_content_hash.sql` adds `content_hash TEXT` column to `posts` table
+  - REQ-028: Migration creates unique index on `content_hash` that allows NULL values
+  - REQ-029: A utility function computes SHA-256 of normalized post text (whitespace-stripped, lowercased)
+  - REQ-030: CLI `scrape` command computes `content_hash` for each post and sets it before insert
+  - REQ-031: Duplicate content posts are caught by `IntegrityError` on `content_hash` index, counted as duplicates
+  - REQ-032: Existing posts without `content_hash` continue to work (NULL is allowed)
+  - REQ-033: Tests verify content-hash deduplication catches same-text-different-URL posts
+  - REQ-034: Tests verify URL-based deduplication still works
+
+### US-006: Clickable URLs in Flutter expanded content
+- Title: Make URLs in post text clickable in the expanded content view
 - Priority: 6
-- Description: Endpoint to fetch a single post with its classification by classification_id. Used when the Flutter app needs full detail.
+- Description: |
+    In `app/lib/widgets/expanded_content.dart`, the post text is rendered as a plain `Text` widget.
+    URLs within the text should be detected via regex and rendered as clickable links.
+    Replace the `Text` widget with a `RichText` / `Text.rich` using `TextSpan` children.
+    URL segments get a `TapGestureRecognizer` that calls `url_launcher.launchUrl()`.
+    Apply only to the expanded content bottom sheet (full post text view), not the summary on PostCard.
 - Acceptance Criteria:
-  - REQ-026 `GET /api/posts/{classification_id}` returns `PostResponse` for valid ID
-  - REQ-027 Returns 404 with `{"detail": "Not found"}` for nonexistent classification_id
-  - REQ-028 Test in `tests_server/test_posts_router.py` covers both found and not-found cases
+  - REQ-035: URLs in post text (expanded content view) are rendered as clickable styled links (e.g., blue/underlined)
+  - REQ-036: Tapping a URL opens it in the external browser via `url_launcher`
+  - REQ-037: Non-URL text renders normally alongside clickable URLs
+  - REQ-038: URL regex handles common patterns: `http://`, `https://`, with paths, query params, fragments
+  - REQ-039: Widget tests verify URL segments are created as clickable spans and non-URL text is plain
 
-### US-007
-- Title: POST /api/posts/{classification_id}/archive endpoint
+### US-007: Installation guide and agent-friendly README
+- Title: Write comprehensive installation document and update README
 - Priority: 7
-- Description: Archive endpoint called when user swipes left. Updates the classification's swipe_status to 'archived' in the DB. Returns the full post data in the response so the Flutter app can forward it to the webhook.
-- Acceptance Criteria:
-  - REQ-029 `server/routers/actions.py` exists
-  - REQ-030 `POST /api/posts/{classification_id}/archive` calls `update_swipe_status(conn, classification_id, 'archived')`
-  - REQ-031 Response includes `ArchiveResponse` with status="archived" and the classification_id; response also includes full post data (author_name, summary, post_url, post_text, category) so the Flutter app can build webhook payloads
-  - REQ-032 Returns 404 for nonexistent classification_id
-  - REQ-033 Test in `tests_server/test_actions_router.py` verifies status update in DB and response shape
+- Description: |
+    Create `docs/installation.md` with the full setup process, written to be both human-readable
+    and machine-readable enough for an AI coding agent to follow step-by-step.
 
-### US-008
-- Title: POST /api/posts/{classification_id}/delete endpoint
-- Priority: 8
-- Description: Delete endpoint called when user swipes right. Updates the classification's swipe_status to 'deleted' so it never appears in the feed again.
-- Acceptance Criteria:
-  - REQ-034 `POST /api/posts/{classification_id}/delete` calls `update_swipe_status(conn, classification_id, 'deleted')`
-  - REQ-035 Response is `DeleteResponse` with status="deleted" and classification_id
-  - REQ-036 Returns 404 for nonexistent classification_id
-  - REQ-037 Test in `tests_server/test_actions_router.py` verifies the post no longer appears in GET /api/posts after deletion
+    Update `README.md` with a one-liner installation section:
+    > **Installation:** Give [this document](raw-link) to your AI coding agent and ask it to set up NoiseCancel for you.
 
-### US-009
-- Title: POST /api/pipeline/run and GET /api/pipeline/status endpoints
-- Priority: 9
-- Description: Pipeline endpoints to trigger scrape+classify on demand and check the latest run status. The run executes as a background task. Reuses existing core logic from `noise_cancel/scraper/` and `noise_cancel/classifier/`.
-- Acceptance Criteria:
-  - REQ-038 `server/routers/pipeline.py` and `server/services/pipeline.py` exist
-  - REQ-039 `POST /api/pipeline/run` accepts optional `PipelineRunRequest` body (limit, skip_scrape); creates a RunLog via `insert_run_log()`, starts scrape+classify as a FastAPI `BackgroundTasks` task, returns 202 with `PipelineRunResponse` containing run_id
-  - REQ-040 `server/services/pipeline.py` has `async run_pipeline(conn, config, run_id, limit, skip_scrape)` that calls `LinkedInScraper.scrape_feed()`, `insert_post()`, `ClassificationEngine.classify_posts()`, `insert_classification()`, `update_run_log()` — all imported from existing `noise_cancel` modules
-  - REQ-041 `GET /api/pipeline/status` returns the latest run log via `get_run_logs(conn, limit=1)` wrapped in `PipelineStatusResponse`
-  - REQ-042 Tests in `tests_server/test_pipeline_router.py` mock the scraper and classifier, verify run_log creation and 202 response
+    The installation doc must cover:
+    - Prerequisites (Python 3.10+, uv, Playwright, Flutter SDK)
+    - Clone + `make install` + `playwright install chromium`
+    - `noise-cancel init` + config.yaml structure explanation
+    - Environment variables (`ANTHROPIC_API_KEY`, `SLACK_WEBHOOK_URL`)
+    - `noise-cancel login` (LinkedIn session management, headless notes, session TTL)
+    - New config fields from this MVP: `server.api_key`, `server.cors_origins`, `delivery.plugins`
+    - Server startup (`make server`)
+    - Flutter app setup + settings (server URL, API key)
+    - Cron scheduling example for automated pipeline runs
+    - Troubleshooting section (session expiry, common errors)
+    - How to write a custom delivery plugin (brief guide referencing `DeliveryPlugin` base class)
 
-### US-010
-- Title: Flutter app scaffold with dark theme
-- Priority: 10
-- Description: Create the Flutter project in `app/` directory with dark theme, basic navigation, and required dependencies. This is the foundation for all UI stories.
+    This story must be done LAST because it documents the final state after all other changes.
 - Acceptance Criteria:
-  - REQ-043 `app/` directory contains a valid Flutter project (`pubspec.yaml`, `lib/main.dart`, `android/`, `ios/`)
-  - REQ-044 `pubspec.yaml` includes dependencies: `http`, `provider`, `flutter_card_swiper`, `url_launcher`, `flutter_secure_storage`, `google_fonts`
-  - REQ-045 `app/lib/main.dart` creates a `MaterialApp` with dark theme (scaffold background #121212, card color #1E1E1E, blue primary accent)
-  - REQ-046 `app/lib/app.dart` (or in main.dart) sets up `Provider` with `ChangeNotifierProvider` for app state
-  - REQ-047 `flutter analyze` in `app/` reports no errors
-  - REQ-048 `.gitignore` updated at repo root with Flutter build artifact patterns (app/build/, app/.dart_tool/, app/ios/Pods/, etc.)
-
-### US-011
-- Title: Post data model and API service in Flutter
-- Priority: 11
-- Description: Create the Dart Post model mirroring the server's PostResponse schema, and the ApiService class for HTTP communication with the server.
-- Acceptance Criteria:
-  - REQ-049 `app/lib/models/post.dart` defines a `Post` class with fields matching `PostResponse` (id, classificationId, authorName, authorUrl, postUrl, postText, summary, category, confidence, reasoning, classifiedAt, swipeStatus); includes `fromJson(Map<String, dynamic>)` factory constructor
-  - REQ-050 `app/lib/services/api_service.dart` defines `ApiService` class with configurable `baseUrl`; methods: `fetchPosts({int limit, int offset})` returns `Future<List<Post>>`, `archivePost(String classificationId)` returns `Future<Map<String, dynamic>>` (full post data for webhook), `deletePost(String classificationId)` returns `Future<void>`
-  - REQ-051 `ApiService` reads server URL from `flutter_secure_storage`
-  - REQ-052 All HTTP calls include proper error handling (try-catch, status code checks)
-
-### US-012
-- Title: PostCard widget with author, summary, more button, and link button
-- Priority: 12
-- Description: The card widget displayed in the swipe stack. Shows author name prominently, AI summary as body text, a "More" button to expand full content, and a "Link" button to open the original LinkedIn post.
-- Acceptance Criteria:
-  - REQ-053 `app/lib/widgets/post_card.dart` defines a `PostCard` StatelessWidget that takes a `Post` object
-  - REQ-054 Card displays: author_name in bold large text at top, summary as body text below, a row at the bottom with two buttons
-  - REQ-055 "더보기" (More) button opens a modal bottom sheet (`ExpandedContent`) showing the full `post_text`
-  - REQ-056 "Link" button uses `url_launcher` to open `post_url` in external browser; hidden if `post_url` is null
-  - REQ-057 Card uses dark theme card color (#1E1E1E), rounded corners, adequate padding for readability
-
-### US-013
-- Title: ExpandedContent bottom sheet for full post text
-- Priority: 13
-- Description: A modal bottom sheet widget showing the full post content, author info, and classification metadata when the user taps "More".
-- Acceptance Criteria:
-  - REQ-058 `app/lib/widgets/expanded_content.dart` defines an `ExpandedContent` widget that takes a `Post` object
-  - REQ-059 Shows author name at top with link to LinkedIn profile (author_url via url_launcher)
-  - REQ-060 Full `post_text` displayed in a scrollable area
-  - REQ-061 Category and confidence shown as a small badge/chip (e.g., "Read 95%")
-  - REQ-062 Dark theme styling consistent with the rest of the app
-
-### US-014
-- Title: SwipeScreen with Tinder-style card swiping
-- Priority: 14
-- Description: The main screen of the app. Uses `flutter_card_swiper` to display PostCards in a swipeable stack. Swipe left archives (calls archive API + webhook from app), swipe right deletes (calls delete API). Pre-fetches more posts when the stack runs low.
-- Acceptance Criteria:
-  - REQ-063 `app/lib/screens/swipe_screen.dart` defines `SwipeScreen` as a StatefulWidget
-  - REQ-064 Uses `CardSwiper` from `flutter_card_swiper` package to display `PostCard` widgets in a stack
-  - REQ-065 Swipe left triggers: `ApiService.archivePost()` call, then if webhook enabled, `WebhookService.forward()` with the returned post data
-  - REQ-066 Swipe right triggers: `ApiService.deletePost()` call
-  - REQ-067 When fewer than 5 cards remain in the stack, automatically fetches the next batch from the API (pagination via offset)
-  - REQ-068 Empty state displayed when no posts are available (friendly message like "All caught up!")
-  - REQ-069 AppBar shows "NoiseCancel" title and a settings gear icon that navigates to SettingsScreen
-
-### US-015
-- Title: Client-side webhook forwarding service in Flutter
-- Priority: 15
-- Description: A Dart service that handles webhook forwarding entirely from the Flutter app. When the user archives a post, the app sends the post data to the user-configured webhook URL. Supports customizable JSON payload templates. Fire-and-forget (does not block the swipe UI).
-- Acceptance Criteria:
-  - REQ-070 `app/lib/services/webhook_service.dart` defines `WebhookService` class
-  - REQ-071 Reads webhook config from `flutter_secure_storage`: `webhook_url` (String), `webhook_enabled` (bool), `webhook_template` (String, JSON template with placeholders like `{{author_name}}`, `{{summary}}`, `{{post_url}}`, `{{category}}`)
-  - REQ-072 `forward(Map<String, dynamic> postData)` method: if enabled, builds payload by substituting placeholders in template with actual post data, HTTP POSTs to webhook_url
-  - REQ-073 Forwarding is fire-and-forget: errors are caught and logged, never thrown to caller, never blocks the swipe UI
-  - REQ-074 Default template when none configured: `{"author": "{{author_name}}", "summary": "{{summary}}", "url": "{{post_url}}", "category": "{{category}}"}`
-
-### US-016
-- Title: Settings screen for server URL and webhook configuration
-- Priority: 16
-- Description: A settings screen where the user configures the server URL and webhook forwarding (URL, JSON template, enable/disable). All settings stored in local secure storage.
-- Acceptance Criteria:
-  - REQ-075 `app/lib/screens/settings_screen.dart` defines `SettingsScreen` widget
-  - REQ-076 Text field for "Server URL" (persisted to secure storage, used by ApiService)
-  - REQ-077 Section for webhook config: toggle switch for enable/disable, text field for webhook URL, multiline text field for JSON payload template
-  - REQ-078 Save button persists all settings to `flutter_secure_storage`
-  - REQ-079 On open, loads current values from secure storage into the fields
-  - REQ-080 Dark theme styling consistent with the rest of the app
-
-### US-017
-- Title: Makefile targets and project config updates
-- Priority: 17
-- Description: Update Makefile with server and Flutter targets. Update CLAUDE.md to document the new architecture.
-- Acceptance Criteria:
-  - REQ-081 `Makefile` adds targets: `server` (runs `uv run uvicorn server.main:app --reload --host 0.0.0.0 --port 8012`), `test-server` (runs `uv run python -m pytest tests_server`), `flutter-run` (runs `cd app && flutter run`)
-  - REQ-082 `CLAUDE.md` updated with new monorepo structure, server architecture description, and Flutter app description
-  - REQ-083 `make check` passes for both `noise_cancel/` and `server/` code
-  - REQ-084 `make test` runs both `tests/` and `tests_server/`
-  - REQ-085 All existing CLI commands (`noise-cancel --help`, `noise-cancel init`, etc.) still work unchanged
+  - REQ-040: `docs/installation.md` exists with sequential, numbered setup steps
+  - REQ-041: Document covers all prerequisites, install commands, config, env vars, login, server, and app setup
+  - REQ-042: Document includes new MVP features: delivery plugins config, `server.api_key`, `server.cors_origins`
+  - REQ-043: Document includes a cron scheduling example for automated pipeline runs
+  - REQ-044: Document includes troubleshooting section
+  - REQ-045: Document includes brief custom delivery plugin guide
+  - REQ-046: `README.md` contains an installation section with link to `docs/installation.md` raw URL and agent-friendly one-liner

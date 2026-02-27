@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 from platformdirs import user_data_dir
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 _DEFAULT_DATA_DIR = user_data_dir("noise-cancel")
 
@@ -54,11 +54,60 @@ _DEFAULT_DELIVERY: dict[str, Any] = {
 }
 
 
+def _legacy_delivery_to_plugins(delivery: dict[str, Any]) -> list[dict[str, Any]]:
+    method = delivery.get("method")
+    if not isinstance(method, str) or not method:
+        return []
+
+    plugin_config = delivery.get(method, {})
+    plugin_entry: dict[str, Any] = {"type": method}
+    if isinstance(plugin_config, dict):
+        plugin_entry.update(plugin_config)
+    return [plugin_entry]
+
+
+def _normalize_delivery_config(delivery: dict[str, Any]) -> dict[str, Any]:
+    normalized = _deep_merge(_DEFAULT_DELIVERY, delivery)
+    plugins = normalized.get("plugins")
+
+    normalized_plugins: list[dict[str, Any]]
+    if isinstance(plugins, list) and plugins:
+        normalized_plugins = [dict(plugin) for plugin in plugins if isinstance(plugin, dict)]
+    else:
+        normalized_plugins = _legacy_delivery_to_plugins(normalized)
+
+    normalized["plugins"] = normalized_plugins
+
+    if len(normalized_plugins) == 1:
+        plugin_type = normalized_plugins[0].get("type")
+        if isinstance(plugin_type, str) and plugin_type:
+            normalized["method"] = plugin_type
+
+    slack_plugin = next(
+        (
+            plugin
+            for plugin in normalized_plugins
+            if isinstance(plugin.get("type"), str) and plugin["type"].strip().lower() == "slack"
+        ),
+        None,
+    )
+    if slack_plugin is not None:
+        plugin_slack_config = {k: v for k, v in slack_plugin.items() if k != "type"}
+        normalized["slack"] = _deep_merge(_DEFAULT_DELIVERY["slack"], plugin_slack_config)
+
+    return normalized
+
+
 class AppConfig(BaseModel):
     general: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_GENERAL))
     scraper: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_SCRAPER))
     classifier: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_CLASSIFIER))
     delivery: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_DELIVERY))
+
+    @model_validator(mode="after")
+    def normalize_delivery(self) -> AppConfig:
+        self.delivery = _normalize_delivery_config(self.delivery)
+        return self
 
 
 def _deep_merge(base: dict, override: dict) -> dict:

@@ -1,12 +1,26 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 
 import httpx
 
 from noise_cancel.config import AppConfig
+from noise_cancel.delivery.base import DeliveryPlugin
 from noise_cancel.delivery.blocks import build_post_blocks
 from noise_cancel.models import Classification, Post
+
+
+class SlackPlugin(DeliveryPlugin):
+    def deliver(
+        self,
+        posts: list[tuple[Post, Classification]],
+        config: AppConfig,
+    ) -> int:
+        return deliver_posts(posts, config)
+
+    def validate_config(self, config: dict[str, Any]) -> None:
+        return None
 
 
 def send_to_slack(webhook_url: str, blocks: list[dict], text: str = "") -> bool:
