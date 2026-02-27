@@ -12,6 +12,12 @@ Two delivery modes:
 - **Mobile App** (new) -- Flutter cross-platform app with Tinder-style swipe UI. Swipe left to archive + forward to webhook, swipe right to dismiss.
 - **Slack** -- Incoming webhook delivers classified posts to a Slack channel.
 
+## Installation
+
+> **Installation:** Give [this document](https://raw.githubusercontent.com/vkehfdl1/noise-cancel/main/docs/installation.md) to your AI coding agent and ask it to set up NoiseCancel for you.
+
+Detailed human-readable guide: [docs/installation.md](docs/installation.md)
+
 ## Quick Start
 
 ### 1. Install

@@ -116,7 +116,7 @@
         "REQ-046: `README.md` contains an installation section with link to `docs/installation.md` raw URL and agent-friendly one-liner"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": ""
     }
   ]
