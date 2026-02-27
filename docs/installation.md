@@ -1,194 +1,258 @@
-# NoiseCancel Installation Guide
+# NoiseCancel — Agent Installation Guide
 
-Use this document for a full end-to-end setup of the CLI pipeline, FastAPI server, and Flutter app.
+You are an AI coding agent setting up NoiseCancel for a user. Follow each phase in order. At decision points marked with **ASK USER**, stop and ask the user before proceeding. Do not assume answers.
 
-## Setup Steps
+## Phase 1: Core Installation
 
-1. Install prerequisites.
-   - Python 3.10+
-   - [uv](https://docs.astral.sh/uv/)
-   - Chromium dependencies for Playwright
-   - [Flutter SDK](https://docs.flutter.dev/get-started/install) 3.5+ (for mobile app)
-   - Git
+These steps are always required.
 
-2. Clone the repository.
+```bash
+git clone https://github.com/NomaDamas/Noise-Cancel.git
+cd noise-cancel
+make install
+uv run playwright install chromium
+uv run noise-cancel init
+```
 
-   ```bash
-   git clone https://github.com/vkehfdl1/noise-cancel.git
-   cd noise-cancel
-   ```
+This creates the default config at `~/.config/noise-cancel/config.yaml`.
 
-3. Install project dependencies and browser runtime.
+## Phase 2: Environment Variables
 
-   ```bash
-   make install
-   uv run playwright install chromium
-   ```
+**ASK USER:** "Do you have an Anthropic API key? NoiseCancel uses Claude to classify LinkedIn posts. If you don't have one, create one at https://console.anthropic.com/."
 
-4. Generate the default config file.
+Once the user provides the key:
 
-   ```bash
-   noise-cancel init
-   ```
+```bash
+export ANTHROPIC_API_KEY="<user-provided-key>"
+```
 
-   Default path: `~/.config/noise-cancel/config.yaml`
+Add this export to the user's shell profile (`~/.zshrc`, `~/.bashrc`, etc.) so it persists across sessions.
 
-5. Set required environment variables.
+## Phase 3: Classification Model
 
-   ```bash
-   export ANTHROPIC_API_KEY="sk-ant-..."
-   export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T.../B.../..."
-   ```
+The default model is `claude-sonnet-4-6`.
 
-   Notes:
-   - `ANTHROPIC_API_KEY` is required for classification.
-   - `SLACK_WEBHOOK_URL` is required only if your Slack plugin config does not include `webhook_url`.
-   - Optional: `NC_CONFIG_PATH=/absolute/path/to/config.yaml` to override config location.
+**ASK USER:** "The default classification model is Claude Sonnet (fast, cheap). Do you want to use a different model? Options: `claude-sonnet-4-6` (default), `claude-haiku-4-5-20251001` (faster/cheaper), `claude-opus-4-6` (most accurate/expensive)."
 
-6. Update `config.yaml` for your categories and MVP server/delivery settings.
+If the user picks a non-default model, update `config.yaml`:
 
-   ```yaml
-   general:
-     data_dir: ~/.local/share/noise-cancel
-     max_posts_per_run: 50
+```yaml
+classifier:
+  model: <user-chosen-model>
+```
 
-   scraper:
-     headless: true
-     scroll_count: 10
-     session_ttl_days: 7
+## Phase 4: Summary Language
 
-   classifier:
-     model: claude-sonnet-4-6
-     categories:
-       - name: Read
-         description: "Posts worth reading"
-         emoji: ":fire:"
-       - name: Skip
-         description: "Posts to ignore"
-         emoji: ":mute:"
+**ASK USER:** "What language should post summaries be written in? Default is English. Examples: english, korean, japanese, chinese, spanish, etc."
 
-   delivery:
-     plugins:
-       - type: slack
-         include_categories: ["Read"]
-         include_reasoning: true
-         max_text_preview: 300
-         # Optional when SLACK_WEBHOOK_URL env var is set:
-         # webhook_url: "https://hooks.slack.com/services/..."
+If non-default:
 
-   server:
-     cors_origins:
-       - "http://localhost:8012"
-       - "http://localhost:3000"
-     api_key: "replace-with-your-api-key"  # Empty string disables API auth
-   ```
+```yaml
+general:
+  language: <user-chosen-language>
+```
 
-   Notes:
-   - `delivery.plugins` is the new preferred format.
-   - Legacy `delivery.method` / `delivery.slack` still auto-converts for backward compatibility.
-   - `server.api_key` protects `/api/*` routes through `X-API-Key`.
-   - `server.cors_origins` defaults to `["*"]` when omitted.
+## Phase 5: Delivery Configuration
 
-7. Log in to LinkedIn once to create an encrypted session.
+**ASK USER:** "Where do you want to receive your filtered LinkedIn posts? Options:
+1. **Slack** — sends curated posts to a Slack channel via webhook
+2. **No delivery** — just use the CLI (`noise-cancel classify`) or mobile app to review
+3. **Custom** — you want posts delivered somewhere else (Discord, Notion, email, etc.)
 
-   ```bash
-   noise-cancel login
-   ```
+Which do you prefer?"
 
-   Notes:
-   - This opens a browser and saves encrypted session files in `general.data_dir`.
-   - If the session expires, run `noise-cancel login` again.
-   - Session lifetime is controlled by `scraper.session_ttl_days` (default: 7).
-   - For remote/headless hosts, run login through a virtual display (Xvfb + VNC) so the browser runs on the same machine/IP as scheduled jobs.
+### If Slack:
 
-8. Run the pipeline once from CLI.
+**ASK USER:** "Please provide your Slack Incoming Webhook URL. You can create one at https://api.slack.com/messaging/webhooks."
 
-   ```bash
-   noise-cancel run
-   ```
+```bash
+export SLACK_WEBHOOK_URL="<user-provided-url>"
+```
 
-   Useful commands:
+Add this to the user's shell profile as well. Then set config:
 
-   ```bash
-   noise-cancel scrape
-   noise-cancel classify
-   noise-cancel deliver
-   noise-cancel logs --limit 10
-   ```
+```yaml
+delivery:
+  plugins:
+    - type: slack
+      include_categories: [Read]
+      include_reasoning: true
+      max_text_preview: 300
+```
 
-9. Start the API server.
+### If No delivery:
 
-   ```bash
-   make server
-   ```
+Remove or empty the plugins list:
 
-   Default local URL: `http://0.0.0.0:8012`
+```yaml
+delivery:
+  plugins: []
+```
 
-10. Set up and run the Flutter app.
+### If Custom:
 
-    ```bash
-    cd app
-    flutter pub get
-    flutter run
-    ```
+Explain to the user: "NoiseCancel has a plugin architecture for delivery. You can implement a custom delivery plugin by:
 
-11. Configure app settings (inside the Flutter app).
-    - `Server URL`: e.g. `http://localhost:8012` (emulator) or `http://<your-lan-ip>:8012` (physical device)
-    - `API Key`: same value as `server.api_key` in `config.yaml` (leave blank if server auth is disabled)
+1. Creating a class that extends `DeliveryPlugin` in `noise_cancel/delivery/`
+2. Implementing `validate_config(config)` and `deliver(posts, config) -> int`
+3. Registering it in `noise_cancel/delivery/loader.py` (`_PLUGIN_REGISTRY`)
+4. See `noise_cancel/delivery/slack.py` as a reference implementation.
 
-12. (Optional) Schedule automated runs with cron.
+Would you like me to scaffold a custom delivery plugin for you now?"
 
-    Example crontab (`crontab -e`) running every 2 hours:
+If yes, ask what service they want to deliver to and scaffold the plugin. If no, set `delivery.plugins: []` for now and move on.
 
-    ```cron
-    0 */2 * * * cd /absolute/path/to/noise-cancel && \
-    export ANTHROPIC_API_KEY="sk-ant-..." && \
-    export SLACK_WEBHOOK_URL="https://hooks.slack.com/services/T.../B.../..." && \
-    uv run noise-cancel run >> /absolute/path/to/noise-cancel/logs/cron.log 2>&1
-    ```
+## Phase 6: LinkedIn Login
 
-    Recommendations:
-    - Use absolute paths in cron jobs.
-    - Confirm `noise-cancel login` already succeeded on that host before enabling cron.
-    - Rotate logs if you expect long-running automation.
+```bash
+uv run noise-cancel login
+```
 
-## Troubleshooting
+Tell the user: "A browser window will open. Please log in to LinkedIn manually. The session will be saved and encrypted locally. Sessions expire after 7 days by default — you'll need to re-run this command when that happens."
 
-- `No session found` or `Session expired`
-  - Run `noise-cancel login` again.
-  - Verify `scraper.session_ttl_days` and system clock correctness.
+Wait for the user to confirm login is complete before proceeding.
 
-- `Anthropic API key missing` / classification failures
-  - Check `ANTHROPIC_API_KEY` is exported in the shell environment that runs commands (interactive shell, cron, or service).
+## Phase 7: Test Run
 
-- `Slack plugin requires webhook_url or SLACK_WEBHOOK_URL`
-  - Add `webhook_url` under the Slack plugin in `delivery.plugins`, or export `SLACK_WEBHOOK_URL`.
+```bash
+uv run noise-cancel run
+```
 
-- API returns `401 Unauthorized`
-  - Ensure client sends `X-API-Key` matching `server.api_key`.
-  - In Flutter Settings, verify API Key value and save again.
+Verify the output shows scraped + classified + delivered counts. If errors occur, troubleshoot:
 
-- Browser CORS errors from frontend clients
-  - Add the client origin to `server.cors_origins`.
-  - Restart server after config changes.
+- `No session found` → Re-run `noise-cancel login`
+- `Anthropic API key missing` → Check `ANTHROPIC_API_KEY` is exported
+- `Slack plugin requires webhook_url` → Check `SLACK_WEBHOOK_URL` or add `webhook_url` to plugin config
 
-- Flutter app cannot reach server from physical phone
-  - `localhost` on phone points to the phone itself, not your computer.
-  - Use your computer's LAN IP in app settings (example: `http://192.168.1.50:8012`).
+## Phase 8: Mobile App Decision
 
-## Custom Delivery Plugin (Brief Guide)
+**ASK USER:** "NoiseCancel has a mobile app with a Tinder-style swipe interface — swipe left to save posts, swipe right to skip. This requires running the API server. Do you want to set up the mobile app, or is receiving posts via your configured delivery channel (Slack, etc.) enough?"
 
-1. Create a plugin class implementing `DeliveryPlugin` in `noise_cancel/delivery/`.
-2. Implement:
-   - `validate_config(config: dict[str, Any]) -> None`
-   - `deliver(posts: list[tuple[Post, Classification]], config: AppConfig) -> int`
-3. Register the plugin in `noise_cancel/delivery/loader.py` (`_PLUGIN_REGISTRY`).
-4. Add plugin config under `delivery.plugins` in `config.yaml`.
-5. Run:
+### If Yes (mobile app):
 
-   ```bash
-   make test
-   noise-cancel deliver
-   ```
+Proceed to Phase 9, 10, and 11.
 
-Start from `noise_cancel/delivery/slack.py` as the reference implementation.
+### If No:
+
+Skip to Phase 12 (Scheduling). The CLI pipeline + delivery is fully functional without the server or app.
+
+## Phase 9: Server Security
+
+Only if user wants the mobile app.
+
+**ASK USER:** "The API server needs to be accessible from your phone. Do you want to set an API key to protect it? (Recommended if the server is accessible from outside your local network.)"
+
+### If Yes:
+
+**ASK USER:** "Enter an API key (any string you choose), or type 'generate' and I'll create one for you."
+
+If user says 'generate', create a random 32-character hex string. Then update config:
+
+```yaml
+server:
+  api_key: "<chosen-or-generated-key>"
+  cors_origins:
+    - "*"
+```
+
+### If No:
+
+```yaml
+server:
+  api_key: ""
+  cors_origins:
+    - "*"
+```
+
+## Phase 10: Start Server
+
+Only if user wants the mobile app.
+
+```bash
+make server
+```
+
+The server runs at `http://0.0.0.0:8012`. Tell the user: "The API server is running. You'll need to keep this running for the mobile app to work. Consider running it in a terminal multiplexer (tmux, screen) or as a background service."
+
+## Phase 11: Flutter App Setup
+
+Only if user wants the mobile app.
+
+**ASK USER:** "Do you have the Flutter SDK (3.5+) installed? If not, install it from https://docs.flutter.dev/get-started/install."
+
+Once confirmed:
+
+```bash
+cd app
+flutter pub get
+flutter run
+```
+
+Tell the user: "In the app Settings screen, configure:
+- **Server URL**: `http://localhost:8012` (emulator) or `http://<your-LAN-IP>:8012` (physical device)
+- **API Key**: the same key from server config (leave empty if you didn't set one)"
+
+## Phase 12: Scheduling
+
+**ASK USER:** "Do you want to automatically run the pipeline on a schedule? This will periodically scrape your LinkedIn feed, classify posts, and deliver them. If yes, how often? Examples:
+- Every 2 hours
+- Every 6 hours
+- Once a day (e.g., 8 AM)
+- Custom cron expression"
+
+### If Yes:
+
+Based on the user's answer, construct the crontab entry. Examples:
+
+- Every 2 hours: `0 */2 * * *`
+- Every 6 hours: `0 */6 * * *`
+- Daily at 8 AM: `0 8 * * *`
+
+```bash
+crontab -e
+```
+
+Add the following line (adjust paths and schedule):
+
+```cron
+<schedule> cd <absolute-path-to-noise-cancel> && export ANTHROPIC_API_KEY="<key>" && export SLACK_WEBHOOK_URL="<url>" && uv run noise-cancel run >> <absolute-path-to-noise-cancel>/logs/cron.log 2>&1
+```
+
+Create the logs directory:
+
+```bash
+mkdir -p <absolute-path-to-noise-cancel>/logs
+```
+
+Important notes to tell the user:
+- "Make sure `noise-cancel login` has been run on this machine first."
+- "LinkedIn sessions expire every 7 days. You'll need to re-login periodically."
+- "Check `logs/cron.log` if posts stop arriving."
+
+### If No:
+
+Tell the user: "You can run `noise-cancel run` manually whenever you want to refresh your feed."
+
+## Phase 13: Final Summary
+
+Print a summary of what was configured:
+
+```
+NoiseCancel Setup Complete!
+
+- Model: <model>
+- Language: <language>
+- Delivery: <slack / none / custom>
+- Mobile app: <yes / no>
+- Server API key: <set / not set>
+- Schedule: <cron expression / manual>
+
+Useful commands:
+  noise-cancel run        # Run full pipeline manually
+  noise-cancel scrape     # Scrape LinkedIn feed only
+  noise-cancel classify   # Classify unprocessed posts
+  noise-cancel deliver    # Deliver classified posts
+  noise-cancel logs       # View run history
+  noise-cancel stats      # View classification stats
+  make server             # Start API server
+```
