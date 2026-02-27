@@ -53,6 +53,10 @@ _DEFAULT_DELIVERY: dict[str, Any] = {
     },
 }
 
+_DEFAULT_SERVER: dict[str, Any] = {
+    "cors_origins": ["*"],
+}
+
 
 def _legacy_delivery_to_plugins(delivery: dict[str, Any]) -> list[dict[str, Any]]:
     method = delivery.get("method")
@@ -103,6 +107,7 @@ class AppConfig(BaseModel):
     scraper: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_SCRAPER))
     classifier: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_CLASSIFIER))
     delivery: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_DELIVERY))
+    server: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_SERVER))
 
     @model_validator(mode="after")
     def normalize_delivery(self) -> AppConfig:
@@ -158,6 +163,10 @@ delivery:
       - Read
     include_reasoning: true
     max_text_preview: 300
+
+server:
+  cors_origins:
+    - "*"
 """
 
 
@@ -190,6 +199,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
         "scraper": _deep_merge(_DEFAULT_SCRAPER, raw.get("scraper", {})),
         "classifier": _deep_merge(_DEFAULT_CLASSIFIER, raw.get("classifier", {})),
         "delivery": _deep_merge(_DEFAULT_DELIVERY, raw.get("delivery", {})),
+        "server": _deep_merge(_DEFAULT_SERVER, raw.get("server", {})),
     }
 
     # Expand ~ in data_dir so Path("~/.local/...") resolves to the real home dir
