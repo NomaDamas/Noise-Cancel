@@ -32,7 +32,7 @@
         "REQ-012: Server `POST /api/pipeline/run` still works with refactored delivery"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
