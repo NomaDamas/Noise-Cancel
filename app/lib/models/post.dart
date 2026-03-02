@@ -4,7 +4,7 @@ class Post {
     required this.classificationId,
     required this.platform,
     required this.authorName,
-    required this.authorUrl,
+    this.authorUrl,
     required this.postUrl,
     required this.postText,
     required this.summary,
@@ -20,7 +20,7 @@ class Post {
   final String classificationId;
   final String platform;
   final String authorName;
-  final String authorUrl;
+  final String? authorUrl;
   final String? postUrl;
   final String postText;
   final String summary;
@@ -43,7 +43,7 @@ class Post {
           fallbackKey: 'classification_id'),
       platform: _readString(json, 'platform'),
       authorName: _readString(json, 'authorName', fallbackKey: 'author_name'),
-      authorUrl: _readString(json, 'authorUrl', fallbackKey: 'author_url'),
+      authorUrl: _readOptionalString(json, 'authorUrl', fallbackKey: 'author_url'),
       postUrl: _readOptionalString(json, 'postUrl', fallbackKey: 'post_url'),
       postText: _readString(json, 'postText', fallbackKey: 'post_text'),
       summary: _readString(json, 'summary'),

@@ -41,7 +41,11 @@ class _ExpandedContentState extends State<ExpandedContent> {
   }
 
   Future<void> _openAuthorProfile() async {
-    final uri = Uri.tryParse(widget.post.authorUrl);
+    final authorUrl = widget.post.authorUrl;
+    if (authorUrl == null) {
+      return;
+    }
+    final uri = Uri.tryParse(authorUrl);
     if (uri == null) {
       return;
     }
