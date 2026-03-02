@@ -16,12 +16,21 @@ _DEFAULT_GENERAL: dict[str, Any] = {
     "language": "english",
 }
 
-_DEFAULT_SCRAPER: dict[str, Any] = {
+_DEFAULT_SCRAPER_BASE: dict[str, Any] = {
     "headless": True,
     "scroll_count": 10,
     "scroll_delay_min": 1.5,
     "scroll_delay_max": 3.5,
     "session_ttl_days": 7,
+}
+
+_DEFAULT_SCRAPER_PLATFORM: dict[str, Any] = {"enabled": True, **_DEFAULT_SCRAPER_BASE}
+
+_DEFAULT_SCRAPER: dict[str, Any] = {
+    **_DEFAULT_SCRAPER_BASE,
+    "platforms": {
+        "linkedin": dict(_DEFAULT_SCRAPER_PLATFORM),
+    },
 }
 
 _DEFAULT_CLASSIFIER: dict[str, Any] = {
@@ -103,15 +112,51 @@ def _normalize_delivery_config(delivery: dict[str, Any]) -> dict[str, Any]:
     return normalized
 
 
+def _normalize_scraper_config(scraper: dict[str, Any]) -> dict[str, Any]:
+    raw_scraper = scraper if isinstance(scraper, dict) else {}
+    has_explicit_platforms = isinstance(raw_scraper.get("platforms"), dict)
+
+    normalized = _deep_merge(_DEFAULT_SCRAPER, raw_scraper)
+    global_defaults = {key: normalized.get(key, value) for key, value in _DEFAULT_SCRAPER_BASE.items()}
+
+    if has_explicit_platforms:
+        source_platforms: dict[str, dict[str, Any]] = {}
+        raw_platforms = raw_scraper.get("platforms", {})
+        merged_platforms = normalized.get("platforms", {})
+        if isinstance(raw_platforms, dict) and isinstance(merged_platforms, dict):
+            for platform in raw_platforms:
+                if not isinstance(platform, str):
+                    continue
+                platform_config = merged_platforms.get(platform, {})
+                source_platforms[platform] = platform_config if isinstance(platform_config, dict) else {}
+    else:
+        source_platforms = {"linkedin": {}}
+
+    normalized_platforms: dict[str, dict[str, Any]] = {}
+    for platform, platform_config in source_platforms.items():
+        if not isinstance(platform, str) or not platform.strip():
+            continue
+        key = platform.strip().lower()
+        settings = platform_config if isinstance(platform_config, dict) else {}
+        normalized_platforms[key] = _deep_merge(
+            {"enabled": True, **global_defaults},
+            settings,
+        )
+
+    normalized["platforms"] = normalized_platforms
+    return normalized
+
+
 class AppConfig(BaseModel):
-    general: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_GENERAL))
-    scraper: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_SCRAPER))
-    classifier: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_CLASSIFIER))
-    delivery: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_DELIVERY))
-    server: dict[str, Any] = Field(default_factory=lambda: dict(_DEFAULT_SERVER))
+    general: dict[str, Any] = Field(default_factory=lambda: _deep_merge({}, _DEFAULT_GENERAL))
+    scraper: dict[str, Any] = Field(default_factory=lambda: _deep_merge({}, _DEFAULT_SCRAPER))
+    classifier: dict[str, Any] = Field(default_factory=lambda: _deep_merge({}, _DEFAULT_CLASSIFIER))
+    delivery: dict[str, Any] = Field(default_factory=lambda: _deep_merge({}, _DEFAULT_DELIVERY))
+    server: dict[str, Any] = Field(default_factory=lambda: _deep_merge({}, _DEFAULT_SERVER))
 
     @model_validator(mode="after")
-    def normalize_delivery(self) -> AppConfig:
+    def normalize_sections(self) -> AppConfig:
+        self.scraper = _normalize_scraper_config(self.scraper)
         self.delivery = _normalize_delivery_config(self.delivery)
         return self
 
@@ -133,11 +178,14 @@ general:
   language: english  # Summary language: english, korean, japanese, etc.
 
 scraper:
-  headless: true
-  scroll_count: 10
-  scroll_delay_min: 1.5
-  scroll_delay_max: 3.5
-  session_ttl_days: 7
+  platforms:
+    linkedin:
+      enabled: true
+      headless: true
+      scroll_count: 10
+      scroll_delay_min: 1.5
+      scroll_delay_max: 3.5
+      session_ttl_days: 7
 
 classifier:
   model: claude-sonnet-4-6
@@ -196,9 +244,13 @@ def load_config(config_path: str | None = None) -> AppConfig:
             if isinstance(loaded, dict):
                 raw = loaded
 
+    raw_scraper = raw.get("scraper", {})
+    if not isinstance(raw_scraper, dict):
+        raw_scraper = {}
+
     merged = {
         "general": _deep_merge(_DEFAULT_GENERAL, raw.get("general", {})),
-        "scraper": _deep_merge(_DEFAULT_SCRAPER, raw.get("scraper", {})),
+        "scraper": raw_scraper,
         "classifier": _deep_merge(_DEFAULT_CLASSIFIER, raw.get("classifier", {})),
         "delivery": _deep_merge(_DEFAULT_DELIVERY, raw.get("delivery", {})),
         "server": _deep_merge(_DEFAULT_SERVER, raw.get("server", {})),

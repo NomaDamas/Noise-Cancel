@@ -4,6 +4,7 @@ import inspect
 import sqlite3
 import uuid
 from datetime import datetime, timezone
+from typing import Any, cast
 
 from noise_cancel.classifier.engine import ClassificationEngine
 from noise_cancel.config import AppConfig
@@ -15,7 +16,7 @@ from noise_cancel.logger.repository import (
     update_run_log,
 )
 from noise_cancel.models import Classification, Post
-from noise_cancel.scraper.linkedin import LinkedInScraper
+from noise_cancel.scraper.registry import SCRAPER_REGISTRY
 
 
 def _now_iso() -> str:
@@ -30,6 +31,35 @@ async def _close_scraper(scraper: object) -> None:
     close_result = close()
     if inspect.isawaitable(close_result):
         await close_result
+
+
+def _enabled_platform_configs(config: AppConfig) -> list[tuple[str, dict[str, Any]]]:
+    platforms = config.scraper.get("platforms", {})
+    if not isinstance(platforms, dict):
+        return []
+
+    enabled: list[tuple[str, dict[str, Any]]] = []
+    for platform, platform_config in platforms.items():
+        if not isinstance(platform, str) or not platform.strip():
+            continue
+        if not isinstance(platform_config, dict):
+            continue
+        if not bool(platform_config.get("enabled", True)):
+            continue
+        enabled.append((platform.strip().lower(), platform_config))
+    return enabled
+
+
+def _platform_scoped_config(
+    config: AppConfig,
+    platform_config: dict[str, Any],
+) -> AppConfig:
+    scoped = config.model_copy(deep=True)
+    merged_scraper = {k: v for k, v in scoped.scraper.items() if k != "platforms"}
+    merged_scraper.update(platform_config)
+    merged_scraper["platforms"] = config.scraper.get("platforms", {})
+    scoped.scraper = merged_scraper
+    return scoped
 
 
 async def run_pipeline(
@@ -49,12 +79,24 @@ async def run_pipeline(
             rows = get_unclassified_posts(conn, limit=limit)
             posts_for_classification = [Post(**row) for row in rows]
         else:
-            scraper = LinkedInScraper(config)
-            try:
-                scroll_count = int(config.scraper.get("scroll_count", 10))
-                scraped_posts = await scraper.scrape_feed(scroll_count=scroll_count)
-            finally:
-                await _close_scraper(scraper)
+            enabled_platforms = _enabled_platform_configs(config)
+            scraped_posts: list[Post] = []
+
+            for platform, platform_config in enabled_platforms:
+                scraper_class = SCRAPER_REGISTRY.get(platform)
+                scoped_config = _platform_scoped_config(config, platform_config)
+                scraper = cast(Any, scraper_class)(scoped_config)
+                try:
+                    scroll_count = int(
+                        platform_config.get("scroll_count", scoped_config.scraper.get("scroll_count", 10))
+                    )
+                    platform_posts = await scraper.scrape_feed(scroll_count=scroll_count)
+                finally:
+                    await _close_scraper(scraper)
+
+                for post in platform_posts:
+                    post.platform = platform
+                scraped_posts.extend(platform_posts)
 
             posts_for_classification = []
             for post in scraped_posts[:limit]:

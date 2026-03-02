@@ -28,8 +28,11 @@ def _test_config(tmp_path: Path) -> AppConfig:
     )
 
 
-def _build_client(tmp_path: Path, monkeypatch) -> tuple[TestClient, sqlite3.Connection]:
-    monkeypatch.setattr("server.main.load_config", lambda: _test_config(tmp_path))
+def _build_client(
+    tmp_path: Path, monkeypatch, config: AppConfig | None = None
+) -> tuple[TestClient, sqlite3.Connection]:
+    test_config = config or _test_config(tmp_path)
+    monkeypatch.setattr("server.main.load_config", lambda: test_config)
     conn = sqlite3.connect(":memory:", check_same_thread=False)
     conn.row_factory = sqlite3.Row
     monkeypatch.setattr("server.main.get_connection", lambda _: conn)
@@ -77,7 +80,13 @@ def test_run_pipeline_creates_run_log_and_returns_accepted(tmp_path: Path, monke
                 )
             ]
 
-    monkeypatch.setattr("server.services.pipeline.LinkedInScraper", FakeScraper)
+    class FakeRegistry:
+        def get(self, platform: str):
+            if platform == "linkedin":
+                return FakeScraper
+            raise KeyError(platform)
+
+    monkeypatch.setattr("server.services.pipeline.SCRAPER_REGISTRY", FakeRegistry())
     monkeypatch.setattr("server.services.pipeline.ClassificationEngine", FakeClassifier)
 
     client, conn = _build_client(tmp_path, monkeypatch)
@@ -120,7 +129,13 @@ def test_run_pipeline_allows_empty_body(tmp_path: Path, monkeypatch) -> None:
             assert posts == []
             return []
 
-    monkeypatch.setattr("server.services.pipeline.LinkedInScraper", FakeScraper)
+    class FakeRegistry:
+        def get(self, platform: str):
+            if platform == "linkedin":
+                return FakeScraper
+            raise KeyError(platform)
+
+    monkeypatch.setattr("server.services.pipeline.SCRAPER_REGISTRY", FakeRegistry())
     monkeypatch.setattr("server.services.pipeline.ClassificationEngine", FakeClassifier)
 
     client, conn = _build_client(tmp_path, monkeypatch)
@@ -132,6 +147,102 @@ def test_run_pipeline_allows_empty_body(tmp_path: Path, monkeypatch) -> None:
         run_log = conn.execute("SELECT id, run_type FROM run_logs WHERE id = ?", (payload["run_id"],)).fetchone()
         assert run_log is not None
         assert run_log["run_type"] == "pipeline"
+
+
+def test_run_pipeline_scrapes_all_enabled_platforms(tmp_path: Path, monkeypatch) -> None:
+    config = AppConfig(
+        general={"data_dir": str(tmp_path / "data"), "max_posts_per_run": 50, "language": "english"},
+        scraper={
+            "platforms": {
+                "linkedin": {"enabled": True, "scroll_count": 1},
+                "x": {"enabled": True, "scroll_count": 2},
+                "threads": {"enabled": False, "scroll_count": 3},
+            }
+        },
+        classifier={
+            "model": "claude-sonnet-4-6",
+            "batch_size": 10,
+            "temperature": 0.0,
+            "categories": [],
+            "whitelist": {"keywords": [], "authors": []},
+            "blacklist": {"keywords": [], "authors": []},
+        },
+        delivery={"method": "slack", "slack": {"include_categories": ["Read"]}},
+    )
+
+    class FakeLinkedInScraper:
+        def __init__(self, _config: AppConfig) -> None:
+            pass
+
+        async def scrape_feed(self, scroll_count: int = 10) -> list[Post]:
+            assert scroll_count == 1
+            return [Post(id="li-1", author_name="Alice", post_text="LinkedIn post")]
+
+    class FakeXScraper:
+        def __init__(self, _config: AppConfig) -> None:
+            pass
+
+        async def scrape_feed(self, scroll_count: int = 10) -> list[Post]:
+            assert scroll_count == 2
+            return [Post(id="x-1", author_name="Bob", post_text="X post")]
+
+    class FakeRegistry:
+        def get(self, platform: str):
+            if platform == "linkedin":
+                return FakeLinkedInScraper
+            if platform == "x":
+                return FakeXScraper
+            raise KeyError(platform)
+
+    class FakeClassifier:
+        def __init__(self, _config: AppConfig) -> None:
+            pass
+
+        def classify_posts(self, posts: list[Post]) -> list[PostClassification]:
+            assert {(post.id, post.platform) for post in posts} == {
+                ("li-1", "linkedin"),
+                ("x-1", "x"),
+            }
+            return [
+                PostClassification(
+                    post_index=0,
+                    category="Read",
+                    confidence=0.9,
+                    reasoning="useful",
+                    summary="summary 1",
+                    applied_rules=[],
+                ),
+                PostClassification(
+                    post_index=1,
+                    category="Read",
+                    confidence=0.8,
+                    reasoning="useful",
+                    summary="summary 2",
+                    applied_rules=[],
+                ),
+            ]
+
+    monkeypatch.setattr("server.services.pipeline.SCRAPER_REGISTRY", FakeRegistry())
+    monkeypatch.setattr("server.services.pipeline.ClassificationEngine", FakeClassifier)
+
+    client, conn = _build_client(tmp_path, monkeypatch, config=config)
+    with client:
+        response = client.post("/api/pipeline/run", json={"limit": 10, "skip_scrape": False})
+
+        assert response.status_code == 202
+        payload = response.json()
+
+        run_log = conn.execute(
+            "SELECT status, posts_scraped, posts_classified FROM run_logs WHERE id = ?",
+            (payload["run_id"],),
+        ).fetchone()
+        assert run_log is not None
+        assert run_log["status"] == "completed"
+        assert run_log["posts_scraped"] == 2
+        assert run_log["posts_classified"] == 2
+
+        posts = conn.execute("SELECT id, platform FROM posts ORDER BY id").fetchall()
+        assert [(row["id"], row["platform"]) for row in posts] == [("li-1", "linkedin"), ("x-1", "x")]
 
 
 def test_get_pipeline_status_returns_latest_run(tmp_path: Path, monkeypatch) -> None:

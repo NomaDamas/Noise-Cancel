@@ -623,3 +623,37 @@ class TestScrapeFeed:
             pytest.raises(RuntimeError, match="Session expired"),
         ):
             await scraper.scrape_feed(scroll_count=0)
+
+
+class TestScraperRegistry:
+    def test_default_registry_has_linkedin_mapping(self):
+        from noise_cancel.scraper.linkedin import LinkedInScraper
+        from noise_cancel.scraper.registry import SCRAPER_REGISTRY
+
+        assert SCRAPER_REGISTRY.get("linkedin") is LinkedInScraper
+
+    def test_register_and_resolve_new_scraper(self):
+        from noise_cancel.scraper.base import AbstractScraper
+        from noise_cancel.scraper.registry import ScraperRegistry
+
+        class DummyScraper(AbstractScraper):
+            async def login(self, headed: bool = True) -> None:
+                return None
+
+            async def scrape_feed(self, scroll_count: int = 10) -> list[Post]:
+                return []
+
+            async def close(self) -> None:
+                return None
+
+        registry = ScraperRegistry()
+        registry.register("dummy", DummyScraper)
+
+        assert registry.get("dummy") is DummyScraper
+
+    def test_get_unknown_platform_raises(self):
+        from noise_cancel.scraper.registry import ScraperRegistry
+
+        registry = ScraperRegistry()
+        with pytest.raises(KeyError, match="No scraper registered"):
+            registry.get("unknown")

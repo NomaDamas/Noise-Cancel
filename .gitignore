@@ -221,3 +221,6 @@ app/.pub/
 !app/lib/**
 app/build/
 app/ios/Pods/
+
+
+.DS_Store

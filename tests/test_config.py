@@ -143,3 +143,39 @@ def test_load_config_uses_default_server_api_key(tmp_path: Path):
     config = load_config(str(config_file))
 
     assert config.server["api_key"] == ""
+
+
+def test_default_scraper_config_has_linkedin_platform():
+    config = AppConfig()
+
+    assert "platforms" in config.scraper
+    assert "linkedin" in config.scraper["platforms"]
+    assert config.scraper["platforms"]["linkedin"]["enabled"] is True
+
+
+def test_app_config_migrates_legacy_scraper_to_platforms():
+    config = AppConfig(scraper={"headless": False, "scroll_count": 3})
+
+    linkedin = config.scraper["platforms"]["linkedin"]
+    assert linkedin["headless"] is False
+    assert linkedin["scroll_count"] == 3
+    assert linkedin["enabled"] is True
+
+
+def test_load_config_migrates_legacy_scraper_to_platforms(tmp_path: Path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        yaml.dump({
+            "scraper": {
+                "headless": False,
+                "scroll_count": 2,
+            }
+        })
+    )
+
+    config = load_config(str(config_file))
+    linkedin = config.scraper["platforms"]["linkedin"]
+
+    assert linkedin["headless"] is False
+    assert linkedin["scroll_count"] == 2
+    assert linkedin["enabled"] is True

@@ -86,7 +86,7 @@ def test_apply_migrations_tracks_latest_migration(tmp_path):
     apply_migrations(conn)
 
     applied = {row[0] for row in conn.execute("SELECT name FROM _migrations").fetchall()}
-    assert "004_add_content_hash.sql" in applied
+    assert "005_validate_post_platform.sql" in applied
     conn.close()
 
 
@@ -112,4 +112,12 @@ def test_posts_content_hash_index_unique_allows_null(db_connection):
             "INSERT INTO posts (id, platform, author_name, post_text, scraped_at, content_hash)"
             " VALUES (?, ?, ?, ?, ?, ?)",
             ("p4", "linkedin", "Dave", "D", "2025-01-01T00:00:00", "same-hash"),
+        )
+
+
+def test_posts_platform_rejects_unknown_value(db_connection):
+    with pytest.raises(sqlite3.IntegrityError):
+        db_connection.execute(
+            "INSERT INTO posts (id, platform, author_name, post_text, scraped_at) VALUES (?, ?, ?, ?, ?)",
+            ("bad-platform-post", "myspace", "Eve", "Invalid platform", "2025-01-01T00:00:00"),
         )
