@@ -6,6 +6,7 @@ from pydantic import BaseModel
 class PostResponse(BaseModel):
     id: str
     classification_id: str
+    platform: str
     author_name: str
     author_url: str
     post_url: str

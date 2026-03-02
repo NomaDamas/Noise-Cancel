@@ -18,6 +18,7 @@ def _sample_post_payload() -> dict[str, object]:
     return {
         "id": "post-1",
         "classification_id": "cls-1",
+        "platform": "linkedin",
         "author_name": "Jane Doe",
         "author_url": "https://linkedin.com/in/jane",
         "post_url": "https://linkedin.com/posts/1",
@@ -48,6 +49,7 @@ def test_post_response_schema_contract():
     expected_fields = {
         "id",
         "classification_id",
+        "platform",
         "author_name",
         "author_url",
         "post_url",

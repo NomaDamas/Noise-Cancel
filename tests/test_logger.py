@@ -50,9 +50,11 @@ def _make_post(
     author: str = "Alice",
     text: str = "Hello world",
     run_id: str | None = "run-1",
+    platform: str = "linkedin",
 ) -> Post:
     return Post(
         id=post_id,
+        platform=platform,
         author_name=author,
         post_text=text,
         run_id=run_id,
@@ -186,10 +188,10 @@ class TestClassifications:
 class TestFeedQueriesAndSwipeStatus:
     def _seed_feed_data(self, db_connection: sqlite3.Connection) -> None:
         insert_run_log(db_connection, _make_run_log())
-        insert_post(db_connection, _make_post("post-1"))
-        insert_post(db_connection, _make_post("post-2"))
-        insert_post(db_connection, _make_post("post-3"))
-        insert_post(db_connection, _make_post("post-4"))
+        insert_post(db_connection, _make_post("post-1", platform="linkedin"))
+        insert_post(db_connection, _make_post("post-2", platform="x"))
+        insert_post(db_connection, _make_post("post-3", platform="reddit"))
+        insert_post(db_connection, _make_post("post-4", platform="linkedin"))
         insert_classification(
             db_connection,
             _make_classification("cls-1", "post-1", "Read").model_copy(
@@ -248,6 +250,7 @@ class TestFeedQueriesAndSwipeStatus:
         expected_keys = {
             "id",
             "classification_id",
+            "platform",
             "author_name",
             "author_url",
             "post_url",
@@ -261,6 +264,7 @@ class TestFeedQueriesAndSwipeStatus:
         }
         assert set(rows[0]) == expected_keys
         assert rows[0]["id"] == "post-2"
+        assert rows[0]["platform"] == "x"
         assert rows[0]["summary"] == "Summary 2"
         assert rows[0]["swipe_status"] == "pending"
 
@@ -283,9 +287,25 @@ class TestFeedQueriesAndSwipeStatus:
         assert count_posts_for_feed(db_connection, category="Read", swipe_status="pending") == 2
         assert count_posts_for_feed(db_connection, category="Read", swipe_status="archived") == 1
         assert count_posts_for_feed(db_connection, category="Skip", swipe_status="pending") == 1
+        assert count_posts_for_feed(db_connection, category="Read", swipe_status="pending", platform="x") == 1
+        assert count_posts_for_feed(db_connection, category="Read", swipe_status="pending", platform="linkedin") == 1
 
     def test_count_posts_for_feed_empty_results(self, db_connection: sqlite3.Connection) -> None:
         assert count_posts_for_feed(db_connection) == 0
+
+    def test_get_posts_for_feed_filters_by_platform(self, db_connection: sqlite3.Connection) -> None:
+        self._seed_feed_data(db_connection)
+
+        rows = get_posts_for_feed(
+            db_connection,
+            category="Read",
+            swipe_status="pending",
+            platform="linkedin",
+            limit=20,
+            offset=0,
+        )
+        assert [row["classification_id"] for row in rows] == ["cls-1"]
+        assert {row["platform"] for row in rows} == {"linkedin"}
 
     def test_update_swipe_status_sets_swiped_at_timestamp(
         self,

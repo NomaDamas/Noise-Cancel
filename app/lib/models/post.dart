@@ -2,6 +2,7 @@ class Post {
   const Post({
     required this.id,
     required this.classificationId,
+    required this.platform,
     required this.authorName,
     required this.authorUrl,
     required this.postUrl,
@@ -16,6 +17,7 @@ class Post {
 
   final String id;
   final String classificationId;
+  final String platform;
   final String authorName;
   final String authorUrl;
   final String? postUrl;
@@ -35,7 +37,9 @@ class Post {
 
     return Post(
       id: _readString(json, 'id'),
-      classificationId: _readString(json, 'classificationId', fallbackKey: 'classification_id'),
+      classificationId: _readString(json, 'classificationId',
+          fallbackKey: 'classification_id'),
+      platform: _readString(json, 'platform'),
       authorName: _readString(json, 'authorName', fallbackKey: 'author_name'),
       authorUrl: _readString(json, 'authorUrl', fallbackKey: 'author_url'),
       postUrl: _readOptionalString(json, 'postUrl', fallbackKey: 'post_url'),
@@ -44,8 +48,10 @@ class Post {
       category: _readString(json, 'category'),
       confidence: confidenceValue.toDouble(),
       reasoning: _readString(json, 'reasoning'),
-      classifiedAt: _readString(json, 'classifiedAt', fallbackKey: 'classified_at'),
-      swipeStatus: _readString(json, 'swipeStatus', fallbackKey: 'swipe_status'),
+      classifiedAt:
+          _readString(json, 'classifiedAt', fallbackKey: 'classified_at'),
+      swipeStatus:
+          _readString(json, 'swipeStatus', fallbackKey: 'swipe_status'),
     );
   }
 

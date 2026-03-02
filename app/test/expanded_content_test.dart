@@ -11,6 +11,7 @@ Post _buildPost({
   return Post(
     id: 'post-1',
     classificationId: 'cls-1',
+    platform: 'linkedin',
     authorName: 'Jane Doe',
     authorUrl: 'https://linkedin.com/in/jane',
     postUrl: 'https://linkedin.com/posts/post-1',

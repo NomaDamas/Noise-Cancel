@@ -4,10 +4,14 @@ import 'package:noise_cancel_app/models/post.dart';
 import 'package:noise_cancel_app/widgets/expanded_content.dart';
 import 'package:noise_cancel_app/widgets/post_card.dart';
 
-Post _buildPost({String? postUrl = 'https://linkedin.com/posts/post-1'}) {
+Post _buildPost({
+  String? postUrl = 'https://linkedin.com/posts/post-1',
+  String platform = 'linkedin',
+}) {
   return Post(
     id: 'post-1',
     classificationId: 'cls-1',
+    platform: platform,
     authorName: 'Jane Doe',
     authorUrl: 'https://linkedin.com/in/jane',
     postUrl: postUrl,
@@ -144,6 +148,28 @@ void main() {
     final card = tester.widget<Card>(find.byType(Card));
     final shape = card.shape as RoundedRectangleBorder;
     expect(shape.side, BorderSide.none);
+  });
+
+  testWidgets('renders platform badge with brand color and label', (
+    WidgetTester tester,
+  ) async {
+    await _pumpPostCard(tester, _buildPost(platform: 'x'));
+
+    expect(find.byKey(const Key('platform-badge')), findsOneWidget);
+    expect(find.text('X'), findsOneWidget);
+
+    final badge =
+        tester.widget<Container>(find.byKey(const Key('platform-badge')));
+    final decoration = badge.decoration as BoxDecoration;
+    expect(decoration.color, const Color(0xFF000000));
+
+    final icon = tester.widget<Icon>(
+      find.descendant(
+        of: find.byKey(const Key('platform-badge')),
+        matching: find.byType(Icon),
+      ),
+    );
+    expect(icon.color, Colors.white);
   });
 
   testWidgets('buttons are vertically stacked with outlined style', (

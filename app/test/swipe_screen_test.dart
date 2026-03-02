@@ -11,6 +11,7 @@ Post _buildPost(int index) {
   return Post(
     id: 'post-$index',
     classificationId: 'cls-$index',
+    platform: 'linkedin',
     authorName: 'Author $index',
     authorUrl: 'https://linkedin.com/in/author-$index',
     postUrl: 'https://linkedin.com/posts/post-$index',
@@ -29,17 +30,16 @@ class FakeApiService extends ApiService {
     required this.responsesByOffset,
     required this.events,
     Map<String, dynamic>? archiveResponse,
-  }) : _archiveResponse =
-           archiveResponse ??
-           <String, dynamic>{
-             'classification_id': 'cls-0',
-             'author_name': 'Author 0',
-             'summary': 'Summary 0',
-             'post_url': 'https://linkedin.com/posts/post-0',
-             'post_text': 'Full post text 0',
-             'category': 'Read',
-           },
-       super(baseUrl: 'http://localhost:8012');
+  })  : _archiveResponse = archiveResponse ??
+            <String, dynamic>{
+              'classification_id': 'cls-0',
+              'author_name': 'Author 0',
+              'summary': 'Summary 0',
+              'post_url': 'https://linkedin.com/posts/post-0',
+              'post_text': 'Full post text 0',
+              'category': 'Read',
+            },
+        super(baseUrl: 'http://localhost:8012');
 
   final Map<int, List<Post>> responsesByOffset;
   final List<String> events;
@@ -122,7 +122,8 @@ void main() {
       },
       events: events,
     );
-    final secondBrainService = FakeSecondBrainService(enabled: true, events: events);
+    final secondBrainService =
+        FakeSecondBrainService(enabled: true, events: events);
 
     await _pumpScreen(
       tester,
@@ -154,7 +155,8 @@ void main() {
       events: events,
       archiveResponse: archivePayload,
     );
-    final secondBrainService = FakeSecondBrainService(enabled: true, events: events);
+    final secondBrainService =
+        FakeSecondBrainService(enabled: true, events: events);
 
     await _pumpScreen(
       tester,
@@ -167,7 +169,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(apiService.archivedIds, <String>['cls-0']);
-    expect(secondBrainService.forwardedPayloads, <Map<String, dynamic>>[archivePayload]);
+    expect(secondBrainService.forwardedPayloads,
+        <Map<String, dynamic>>[archivePayload]);
     expect(events, <String>['archive', 'forward']);
   });
 
@@ -180,7 +183,8 @@ void main() {
       },
       events: events,
     );
-    final secondBrainService = FakeSecondBrainService(enabled: false, events: events);
+    final secondBrainService =
+        FakeSecondBrainService(enabled: false, events: events);
 
     await _pumpScreen(
       tester,
@@ -210,7 +214,8 @@ void main() {
       },
       events: events,
     );
-    final secondBrainService = FakeSecondBrainService(enabled: false, events: events);
+    final secondBrainService =
+        FakeSecondBrainService(enabled: false, events: events);
 
     await _pumpScreen(
       tester,
@@ -239,7 +244,8 @@ void main() {
       },
       events: events,
     );
-    final secondBrainService = FakeSecondBrainService(enabled: false, events: events);
+    final secondBrainService =
+        FakeSecondBrainService(enabled: false, events: events);
 
     await _pumpScreen(
       tester,
@@ -250,7 +256,8 @@ void main() {
     expect(find.text('All caught up!'), findsOneWidget);
   });
 
-  testWidgets('app bar shows title and settings icon navigates to settings screen',
+  testWidgets(
+      'app bar shows title and settings icon navigates to settings screen',
       (tester) async {
     final events = <String>[];
     final apiService = FakeApiService(
@@ -259,7 +266,8 @@ void main() {
       },
       events: events,
     );
-    final secondBrainService = FakeSecondBrainService(enabled: false, events: events);
+    final secondBrainService =
+        FakeSecondBrainService(enabled: false, events: events);
 
     await _pumpScreen(
       tester,

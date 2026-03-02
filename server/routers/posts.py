@@ -21,17 +21,25 @@ def get_posts(
     db: Annotated[sqlite3.Connection, Depends(get_db)],
     category: str = Query(default="Read"),
     swipe_status: str = Query(default="pending"),
+    platform: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1),
     offset: int = Query(default=0, ge=0),
 ) -> PostListResponse:
+    normalized_platform = platform.strip().lower() if platform and platform.strip() else None
     rows = get_posts_for_feed(
         conn=db,
         category=category,
         swipe_status=swipe_status,
+        platform=normalized_platform,
         limit=limit,
         offset=offset,
     )
-    total = count_posts_for_feed(conn=db, category=category, swipe_status=swipe_status)
+    total = count_posts_for_feed(
+        conn=db,
+        category=category,
+        swipe_status=swipe_status,
+        platform=normalized_platform,
+    )
     posts = [PostResponse.model_validate(row) for row in rows]
     has_more = total > (offset + limit)
     return PostListResponse(posts=posts, total=total, has_more=has_more)

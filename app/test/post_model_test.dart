@@ -6,6 +6,7 @@ void main() {
     final payload = <String, dynamic>{
       'id': 'post-1',
       'classification_id': 'cls-1',
+      'platform': 'linkedin',
       'author_name': 'Jane Doe',
       'author_url': 'https://linkedin.com/in/jane',
       'post_url': 'https://linkedin.com/posts/post-1',
@@ -22,6 +23,7 @@ void main() {
 
     expect(post.id, 'post-1');
     expect(post.classificationId, 'cls-1');
+    expect(post.platform, 'linkedin');
     expect(post.authorName, 'Jane Doe');
     expect(post.authorUrl, 'https://linkedin.com/in/jane');
     expect(post.postUrl, 'https://linkedin.com/posts/post-1');
@@ -38,6 +40,7 @@ void main() {
     final payload = <String, dynamic>{
       'id': 'post-2',
       'classificationId': 'cls-2',
+      'platform': 'x',
       'authorName': 'John Doe',
       'authorUrl': 'https://linkedin.com/in/john',
       'postUrl': 'https://linkedin.com/posts/post-2',
@@ -53,6 +56,7 @@ void main() {
     final post = Post.fromJson(payload);
 
     expect(post.classificationId, 'cls-2');
+    expect(post.platform, 'x');
     expect(post.authorName, 'John Doe');
     expect(post.swipeStatus, 'archived');
   });
@@ -61,6 +65,7 @@ void main() {
     final payload = <String, dynamic>{
       'id': 'post-3',
       'classification_id': 'cls-3',
+      'platform': 'rss',
       'author_name': 'No Link',
       'author_url': 'https://linkedin.com/in/no-link',
       'post_url': null,
@@ -76,5 +81,24 @@ void main() {
     final post = Post.fromJson(payload);
 
     expect(post.postUrl, isNull);
+  });
+
+  test('Post.fromJson throws when platform field is missing', () {
+    final payload = <String, dynamic>{
+      'id': 'post-4',
+      'classification_id': 'cls-4',
+      'author_name': 'Missing Platform',
+      'author_url': 'https://example.com/author',
+      'post_url': 'https://example.com/posts/post-4',
+      'post_text': 'Missing platform field',
+      'summary': 'Summary',
+      'category': 'Read',
+      'confidence': 0.7,
+      'reasoning': 'Reasoning',
+      'classified_at': '2026-02-25T12:00:00+00:00',
+      'swipe_status': 'pending',
+    };
+
+    expect(() => Post.fromJson(payload), throwsFormatException);
   });
 }
