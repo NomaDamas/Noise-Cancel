@@ -1,8 +1,9 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
-from noise_cancel.config import AppConfig, generate_default_config, load_config
+from noise_cancel.config import AppConfig, ConfigError, generate_default_config, load_config
 
 
 def test_default_config_creation():
@@ -33,6 +34,49 @@ def test_load_config_from_yaml(tmp_path: Path):
 def test_load_config_missing_file_uses_defaults():
     config = load_config("/nonexistent/path/config.yaml")
     assert config.general["max_posts_per_run"] == 50
+
+
+def test_load_config_raises_config_error_for_invalid_whitelist_regex(tmp_path: Path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        yaml.dump({
+            "classifier": {
+                "whitelist": {
+                    "keywords": ["("],
+                    "authors": [],
+                }
+            }
+        })
+    )
+
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(str(config_file))
+
+    message = str(exc_info.value)
+    assert "Invalid regex pattern" in message
+    assert "'('" in message
+
+
+def test_load_config_accepts_regex_patterns(tmp_path: Path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        yaml.dump({
+            "classifier": {
+                "whitelist": {
+                    "keywords": [r"(?i)\bAI\b", r"^Breaking:"],
+                    "authors": [r"Yann\s+LeCun"],
+                },
+                "blacklist": {
+                    "keywords": [r"\b(agree|thoughts)\?"],
+                    "authors": [],
+                },
+            }
+        })
+    )
+
+    config = load_config(str(config_file))
+
+    assert config.classifier["whitelist"]["keywords"] == [r"(?i)\bAI\b", r"^Breaking:"]
 
 
 def test_config_data_dir_default():

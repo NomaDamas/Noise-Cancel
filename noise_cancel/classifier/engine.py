@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import re
 from importlib import import_module
 from typing import TYPE_CHECKING
 
-from noise_cancel.classifier.prompts import build_system_prompt, build_user_prompt, check_blacklist, check_whitelist
+from noise_cancel.classifier.prompts import build_system_prompt, build_user_prompt
 from noise_cancel.classifier.schemas import BatchClassificationResult, PostClassification
+from noise_cancel.config import ConfigError
 
 if TYPE_CHECKING:
     from noise_cancel.config import AppConfig
@@ -15,6 +17,75 @@ class ClassificationEngine:
     def __init__(self, config: AppConfig) -> None:
         self._config = config
         self._client = None
+        classifier_cfg = self._config.classifier
+        self._whitelist_patterns = self._compile_rule_patterns(
+            "whitelist",
+            classifier_cfg.get("whitelist", {}),
+        )
+        self._blacklist_patterns = self._compile_rule_patterns(
+            "blacklist",
+            classifier_cfg.get("blacklist", {}),
+        )
+
+    def _compile_pattern_list(self, patterns: object, *, field_path: str) -> list[re.Pattern[str]]:
+        if not isinstance(patterns, list):
+            return []
+
+        compiled: list[re.Pattern[str]] = []
+        for pattern in patterns:
+            if not isinstance(pattern, str):
+                continue
+            try:
+                compiled.append(re.compile(pattern))
+            except re.error as exc:
+                raise ConfigError.invalid_regex(
+                    field_path=field_path,
+                    pattern=pattern,
+                    detail=str(exc),
+                ) from exc
+        return compiled
+
+    def _compile_rule_patterns(
+        self,
+        rule_name: str,
+        rule: dict[str, object] | None,
+    ) -> dict[str, list[re.Pattern[str]]]:
+        if rule is None:
+            return {"keywords": [], "authors": []}
+        return {
+            "keywords": self._compile_pattern_list(
+                rule.get("keywords", []),
+                field_path=f"classifier.{rule_name}.keywords",
+            ),
+            "authors": self._compile_pattern_list(
+                rule.get("authors", []),
+                field_path=f"classifier.{rule_name}.authors",
+            ),
+        }
+
+    def _matches_rule(self, post: Post, rule: dict[str, list[re.Pattern[str]]]) -> bool:
+        if any(pattern.search(post.post_text) for pattern in rule["keywords"]):
+            return True
+        return any(pattern.search(post.author_name) for pattern in rule["authors"])
+
+    def _apply_rules(self, post: Post, post_index: int) -> PostClassification | None:
+        if self._matches_rule(post, self._whitelist_patterns):
+            return PostClassification(
+                post_index=post_index,
+                category="Read",
+                confidence=1.0,
+                reasoning="Matched whitelist",
+                applied_rules=["whitelist"],
+            )
+        if self._matches_rule(post, self._blacklist_patterns):
+            return PostClassification(
+                post_index=post_index,
+                category="Skip",
+                confidence=1.0,
+                reasoning="Matched blacklist",
+                applied_rules=["blacklist"],
+            )
+        return None
 
     def _get_client(self):
         if self._client is not None:
@@ -28,11 +99,9 @@ class ClassificationEngine:
         client = self._get_client()
         cfg = self._config.classifier
         categories = cfg.get("categories", [])
-        whitelist = cfg.get("whitelist", {})
-        blacklist = cfg.get("blacklist", {})
 
         language = self._config.general.get("language", "english")
-        system_prompt = build_system_prompt(categories, whitelist, blacklist, language=language)
+        system_prompt = build_system_prompt(categories, language=language)
         user_prompt = build_user_prompt(posts)
 
         tool_schema = BatchClassificationResult.model_json_schema()
@@ -66,29 +135,14 @@ class ClassificationEngine:
             return []
 
         cfg = self._config.classifier
-        whitelist = cfg.get("whitelist", {})
-        blacklist = cfg.get("blacklist", {})
 
         results: list[PostClassification | None] = [None] * len(posts)
         needs_api: list[tuple[int, Post]] = []
 
         for i, post in enumerate(posts):
-            if check_whitelist(post, whitelist):
-                results[i] = PostClassification(
-                    post_index=i,
-                    category="Read",
-                    confidence=1.0,
-                    reasoning="Matched whitelist",
-                    applied_rules=["whitelist"],
-                )
-            elif check_blacklist(post, blacklist):
-                results[i] = PostClassification(
-                    post_index=i,
-                    category="Skip",
-                    confidence=1.0,
-                    reasoning="Matched blacklist",
-                    applied_rules=["blacklist"],
-                )
+            rule_result = self._apply_rules(post, i)
+            if rule_result is not None:
+                results[i] = rule_result
             else:
                 needs_api.append((i, post))
 

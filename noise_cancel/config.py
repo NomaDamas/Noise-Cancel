@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -66,6 +67,14 @@ _DEFAULT_SERVER: dict[str, Any] = {
     "cors_origins": ["*"],
     "api_key": "",
 }
+
+
+class ConfigError(Exception):
+    """Raised when configuration values are structurally valid but semantically invalid."""
+
+    @classmethod
+    def invalid_regex(cls, *, field_path: str, pattern: str, detail: str) -> ConfigError:
+        return cls(f"Invalid regex pattern in {field_path}: {pattern!r} ({detail})")
 
 
 def _legacy_delivery_to_plugins(delivery: dict[str, Any]) -> list[dict[str, Any]]:
@@ -171,6 +180,35 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return result
 
 
+def _validate_regex_patterns(patterns: Any, *, field_path: str) -> None:
+    if not isinstance(patterns, list):
+        return
+
+    for pattern in patterns:
+        if not isinstance(pattern, str):
+            continue
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            raise ConfigError.invalid_regex(
+                field_path=field_path,
+                pattern=pattern,
+                detail=str(exc),
+            ) from exc
+
+
+def _validate_classifier_regex_rules(classifier: dict[str, Any]) -> None:
+    for rule_name in ("whitelist", "blacklist"):
+        rule = classifier.get(rule_name, {})
+        if not isinstance(rule, dict):
+            continue
+        for field_name in ("keywords", "authors"):
+            _validate_regex_patterns(
+                rule.get(field_name, []),
+                field_path=f"classifier.{rule_name}.{field_name}",
+            )
+
+
 _DEFAULT_CONFIG_YAML = f"""\
 general:
   data_dir: {_DEFAULT_DATA_DIR}
@@ -199,11 +237,11 @@ classifier:
       description: "Not worth reading - engagement bait, humble brag, ads, spam, irrelevant"
       emoji: ":mute:"
   whitelist:
-    keywords: []     # Posts containing these keywords are always Read
-    authors: []      # Posts by these authors are always Read
+    keywords: []     # Regex patterns on post text: if matched, always Read
+    authors: []      # Regex patterns on author name: if matched, always Read
   blacklist:
-    keywords: []     # Posts containing these keywords are always Skip
-    authors: []      # Posts by these authors are always Skip
+    keywords: []     # Regex patterns on post text: if matched, always Skip
+    authors: []      # Regex patterns on author name: if matched, always Skip
 
 delivery:
   method: slack
@@ -258,5 +296,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
 
     # Expand ~ in data_dir so Path("~/.local/...") resolves to the real home dir
     merged["general"]["data_dir"] = str(Path(merged["general"]["data_dir"]).expanduser())
+
+    _validate_classifier_regex_rules(merged["classifier"])
 
     return AppConfig(**merged)

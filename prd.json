@@ -16,7 +16,7 @@
         "REQ-006: `make check && make test` passes."
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -32,7 +32,7 @@
         "REQ-012: `make check && make test` passes."
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

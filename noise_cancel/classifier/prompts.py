@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -20,27 +21,8 @@ def build_system_prompt(
     for cat in categories:
         lines.append(f"- **{cat['name']}**: {cat['description']}")
 
-    wl = whitelist or {}
-    bl = blacklist or {}
-    has_wl = any(wl.get(k) for k in ("keywords", "authors"))
-    has_bl = any(bl.get(k) for k in ("keywords", "authors"))
-
-    if has_wl or has_bl:
-        lines.append("")
-        lines.append("## Override Rules")
-        if has_wl:
-            lines.append("Always classify as **Read** if:")
-            if wl.get("keywords"):
-                lines.append(f"- Post text contains any of: {wl['keywords']}")
-            if wl.get("authors"):
-                lines.append(f"- Author is any of: {wl['authors']}")
-        if has_bl:
-            lines.append("Always classify as **Skip** if:")
-            if bl.get("keywords"):
-                lines.append(f"- Post text contains any of: {bl['keywords']}")
-            if bl.get("authors"):
-                lines.append(f"- Author is any of: {bl['authors']}")
-        lines.append("If both whitelist and blacklist match, classify as **Read**.")
+    # Kept for backward compatibility with call sites that may still pass these.
+    _ = whitelist, blacklist
 
     lines.append("")
     lines.append("## Examples")
@@ -92,11 +74,12 @@ def build_user_prompt(posts: list[Post]) -> str:
 
 
 def _matches(post: Post, rule: dict) -> bool:
-    text_lower = post.post_text.lower()
-    author_lower = post.author_name.lower()
-    if any(kw.lower() in text_lower for kw in rule.get("keywords", [])):
+    keywords = rule.get("keywords", []) if isinstance(rule, dict) else []
+    authors = rule.get("authors", []) if isinstance(rule, dict) else []
+
+    if any(isinstance(pattern, str) and re.search(pattern, post.post_text) for pattern in keywords):
         return True
-    return any(a.lower() in author_lower for a in rule.get("authors", []))
+    return any(isinstance(pattern, str) and re.search(pattern, post.author_name) for pattern in authors)
 
 
 def check_whitelist(post: Post, whitelist: dict) -> bool:
