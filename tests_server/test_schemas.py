@@ -6,6 +6,7 @@ from pydantic import BaseModel, ValidationError
 from server.schemas import (
     ArchiveResponse,
     DeleteResponse,
+    DigestGenerateResponse,
     NoteDeleteResponse,
     NoteResponse,
     NoteUpsertRequest,
@@ -48,6 +49,7 @@ def test_all_schema_classes_are_pydantic_models():
         PipelineRunRequest,
         PipelineRunResponse,
         PipelineStatusResponse,
+        DigestGenerateResponse,
     ]
     assert all(issubclass(schema, BaseModel) for schema in schema_classes)
 
@@ -160,3 +162,9 @@ def test_pipeline_status_response_schema_contract():
         error_message="",
     )
     assert response.model_dump()["run_id"] == "run-1"
+
+
+def test_digest_generate_response_schema_contract():
+    assert set(DigestGenerateResponse.model_fields) == {"digest_text"}
+    response = DigestGenerateResponse(digest_text="Daily Feed Digest")
+    assert response.model_dump() == {"digest_text": "Daily Feed Digest"}

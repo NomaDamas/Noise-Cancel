@@ -32,6 +32,7 @@ def _metric_value(run_type: str, metric: str, value: int) -> int | None:
         "scrape": {"posts_scraped"},
         "classify": {"posts_classified"},
         "deliver": {"posts_delivered"},
+        "digest": {"posts_delivered"},
         "pipeline": {"posts_scraped", "posts_classified", "posts_delivered"},
     }
     if metric not in applicable_metrics.get(run_type, set()):
@@ -478,10 +479,12 @@ def _included_delivery_categories(cfg: AppConfig) -> set[str]:
 @app.command()
 def deliver(
     config_path: str | None = typer.Option(None, "--config"),
+    digest: bool = typer.Option(False, "--digest", help="Also generate and deliver daily digest."),
 ) -> None:
     """Deliver classified posts via configured delivery plugins."""
     import uuid
 
+    from noise_cancel.digest.service import generate_and_deliver_digest
     from noise_cancel.logger.repository import (
         get_undelivered_classifications,
         insert_run_log,
@@ -514,6 +517,54 @@ def deliver(
     update_run_log(conn, run_id, status="completed", posts_delivered=delivered_count)
     console.print(f"[green]Delivered {delivered_count} posts.[/green]")
 
+    if not digest:
+        return
+
+    digest_result = generate_and_deliver_digest(conn, cfg)
+    console.print(digest_result.digest_text)
+    if digest_result.delivery_enabled:
+        console.print(f"Delivered digest to {digest_result.delivered_plugins} plugin(s).")
+    else:
+        console.print("Digest delivery is disabled in config (delivery.digest.enabled=false).")
+
+
+@app.command()
+def digest(
+    config_path: str | None = typer.Option(None, "--config"),
+) -> None:
+    """Generate and deliver the daily cross-platform digest."""
+    import uuid
+
+    from noise_cancel.digest.service import generate_and_deliver_digest
+    from noise_cancel.logger.repository import insert_run_log, update_run_log
+    from noise_cancel.models import RunLog
+
+    cfg = _get_config(config_path)
+    conn = _get_db(cfg)
+
+    run_id = uuid.uuid4().hex
+    run_log = RunLog(id=run_id, run_type="digest")
+    insert_run_log(conn, run_log)
+
+    try:
+        digest_result = generate_and_deliver_digest(conn, cfg)
+    except Exception as exc:
+        update_run_log(conn, run_id, status="error", error_message=str(exc))
+        console.print(f"[red]Digest generation failed: {exc}[/red]")
+        raise typer.Exit(1) from None
+
+    update_run_log(
+        conn,
+        run_id,
+        status="completed",
+        posts_delivered=digest_result.delivered_plugins,
+    )
+    console.print(digest_result.digest_text)
+    if digest_result.delivery_enabled:
+        console.print(f"Delivered digest to {digest_result.delivered_plugins} plugin(s).")
+    else:
+        console.print("Digest delivery is disabled in config (delivery.digest.enabled=false).")
+
 
 @app.command()
 def run(
@@ -542,7 +593,7 @@ def run(
         ("classify", lambda: classify(config_path=config_path, dry_run=dry_run, limit=limit)),
     ]
     if not dry_run:
-        steps.append(("deliver", lambda: deliver(config_path=config_path)))
+        steps.append(("deliver", lambda: deliver(config_path=config_path, digest=False)))
 
     for step_name, step_fn in steps:
         try:

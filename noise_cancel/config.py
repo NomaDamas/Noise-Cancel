@@ -75,6 +75,9 @@ _DEFAULT_CLASSIFIER: dict[str, Any] = {
 
 _DEFAULT_DELIVERY: dict[str, Any] = {
     "method": "slack",
+    "digest": {
+        "enabled": True,
+    },
     "slack": {
         "include_categories": ["Read"],
         "include_reasoning": True,
@@ -290,6 +293,8 @@ classifier:
 
 delivery:
   method: slack
+  digest:
+    enabled: true
   slack:
     include_categories:
       - Read

@@ -18,6 +18,15 @@ class DeliveryPlugin(ABC):
     @abstractmethod
     def validate_config(self, config: dict[str, Any]) -> None: ...
 
+    def deliver_digest(
+        self,
+        digest_text: str,
+        config: AppConfig,
+        plugin_config: dict[str, Any],
+    ) -> bool:
+        del digest_text, config, plugin_config
+        return False
+
     def notify(
         self,
         message: str,

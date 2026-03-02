@@ -12,6 +12,7 @@ def test_default_config_creation():
     assert config.scraper["session_warning_days"] == 1
     assert config.classifier["model"] == "claude-sonnet-4-6"
     assert config.delivery["plugins"][0]["type"] == "slack"
+    assert config.delivery["digest"]["enabled"] is True
     assert config.dedup["semantic"]["enabled"] is False
     assert config.dedup["semantic"]["provider"] == "sentence-transformers"
     assert config.dedup["semantic"]["model"] == "all-MiniLM-L6-v2"
@@ -127,6 +128,7 @@ def test_generate_default_config_is_loadable(tmp_path: Path):
     assert config.classifier["model"] == "claude-sonnet-4-6"
     assert config.delivery["slack"]["include_categories"] == ["Read"]
     assert config.delivery["plugins"][0]["type"] == "slack"
+    assert config.delivery["digest"]["enabled"] is True
     assert config.dedup["semantic"]["enabled"] is False
     assert config.dedup["semantic"]["provider"] == "sentence-transformers"
     assert config.dedup["semantic"]["model"] == "all-MiniLM-L6-v2"
@@ -157,6 +159,22 @@ def test_load_config_supports_plugins_format(tmp_path: Path):
     assert plugins[0]["type"] == "slack"
     assert plugins[0]["include_categories"] == ["Read", "Skip"]
     assert plugins[0]["include_reasoning"] is False
+
+
+def test_load_config_supports_digest_delivery_toggle(tmp_path: Path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        yaml.dump({
+            "delivery": {
+                "digest": {
+                    "enabled": False,
+                }
+            }
+        })
+    )
+
+    config = load_config(str(config_file))
+    assert config.delivery["digest"]["enabled"] is False
 
 
 def test_load_config_converts_legacy_delivery_to_plugins(tmp_path: Path):

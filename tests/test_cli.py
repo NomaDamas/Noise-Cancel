@@ -647,6 +647,72 @@ class TestDeliverCommand:
         assert result.exit_code == 0
         assert "No undelivered classifications" in result.output
 
+    def test_deliver_with_digest_flag_triggers_digest_generation(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+        from noise_cancel.digest.service import DigestRunResult
+
+        config_path, data_dir = _seed_db(tmp_path)
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        _insert_post(conn, "p1", "Alice", "Post for delivery with digest")
+        _insert_classification(conn, "c1", "p1", "Read", delivered=0)
+        conn.close()
+
+        digest_result = DigestRunResult(
+            digest_text="Daily Feed Digest\n\nDigest body",
+            delivered_plugins=1,
+            delivery_enabled=True,
+        )
+
+        with (
+            patch.dict("os.environ", {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/test"}, clear=True),
+            patch("noise_cancel.delivery.slack.SlackPlugin.deliver", return_value=1),
+            patch("noise_cancel.digest.service.generate_and_deliver_digest", return_value=digest_result) as mock_digest,
+        ):
+            result = runner.invoke(app, ["deliver", "--config", str(config_path), "--digest"])
+
+        assert result.exit_code == 0
+        assert "Delivered 1 posts" in result.output
+        assert "Delivered digest to 1 plugin(s)." in result.output
+        mock_digest.assert_called_once()
+
+
+class TestDigestCommand:
+    def test_digest_command_generates_text_and_updates_run_log(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+        from noise_cancel.digest.service import DigestRunResult
+
+        config_path, data_dir = _seed_db(tmp_path)
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        conn.close()
+
+        digest_result = DigestRunResult(
+            digest_text="Daily Feed Digest\n\nMock digest summary",
+            delivered_plugins=1,
+            delivery_enabled=True,
+        )
+
+        with patch("noise_cancel.digest.service.generate_and_deliver_digest", return_value=digest_result):
+            result = runner.invoke(app, ["digest", "--config", str(config_path)])
+
+        assert result.exit_code == 0
+        assert "Daily Feed Digest" in result.output
+        assert "Delivered digest to 1 plugin(s)." in result.output
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        row = conn.execute(
+            "SELECT run_type, status, posts_delivered FROM run_logs WHERE run_type = 'digest'",
+        ).fetchone()
+        assert row is not None
+        assert row["run_type"] == "digest"
+        assert row["status"] == "completed"
+        assert row["posts_delivered"] == 1
+        conn.close()
+
 
 # ===========================================================================
 # Logs command tests

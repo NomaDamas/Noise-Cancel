@@ -53,3 +53,23 @@ def build_post_blocks(
         })
 
     return blocks
+
+
+def build_digest_blocks(digest_text: str) -> list[dict]:
+    """Build Slack Block Kit blocks for a daily digest payload."""
+    sections = [section.strip() for section in digest_text.split("\n\n") if section.strip()]
+    if not sections:
+        sections = ["No digest content available."]
+
+    blocks: list[dict] = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": "NoiseCancel Daily Digest", "emoji": True},
+        }
+    ]
+
+    for section in sections:
+        blocks.append({"type": "divider"})
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": section}})
+
+    return blocks

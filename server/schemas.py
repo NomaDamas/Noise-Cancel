@@ -79,3 +79,7 @@ class PipelineStatusResponse(BaseModel):
     posts_classified: int
     posts_delivered: int
     error_message: str | None = None
+
+
+class DigestGenerateResponse(BaseModel):
+    digest_text: str
