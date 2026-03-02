@@ -355,12 +355,31 @@ def classify(
         return
 
     posts = [Post(**row) for row in rows]
+    posts_for_classification = posts
+
+    semantic_dedup_cfg = cfg.dedup.get("semantic", {})
+    if bool(semantic_dedup_cfg.get("enabled", False)):
+        from noise_cancel.dedup.embedder import create_embedder_from_config
+        from noise_cancel.dedup.semantic import ClaudeDuplicateVerifier, SemanticDeduplicator
+
+        deduplicator = SemanticDeduplicator(
+            conn=conn,
+            config=cfg,
+            embedder=create_embedder_from_config(cfg),
+            verifier=ClaudeDuplicateVerifier(cfg).verify,
+        )
+        posts_for_classification = deduplicator.deduplicate(posts_for_classification)
+
+        if not posts_for_classification:
+            update_run_log(conn, run_id, status="completed", posts_classified=0)
+            console.print("No non-duplicate posts remaining after semantic dedup.")
+            return
 
     try:
         from noise_cancel.classifier.engine import ClassificationEngine
 
         engine = ClassificationEngine(cfg)
-        results = engine.classify_posts(posts)
+        results = engine.classify_posts(posts_for_classification)
     except Exception as exc:
         console.print(f"[red]Classification failed: {exc}[/red]")
         update_run_log(conn, run_id, status="error", error_message=str(exc))
@@ -371,7 +390,7 @@ def classify(
     for pc in results:
         cls = Classification(
             id=uuid.uuid4().hex,
-            post_id=posts[pc.post_index].id,
+            post_id=posts_for_classification[pc.post_index].id,
             category=pc.category,
             confidence=pc.confidence,
             reasoning=pc.reasoning,
@@ -380,7 +399,7 @@ def classify(
             model_used=model_used,
         )
         if dry_run:
-            console.print(f"  [{cls.category}] {posts[pc.post_index].author_name}: {cls.reasoning}")
+            console.print(f"  [{cls.category}] {posts_for_classification[pc.post_index].author_name}: {cls.reasoning}")
         else:
             insert_classification(conn, cls)
 

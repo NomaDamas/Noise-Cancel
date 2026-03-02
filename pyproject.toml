@@ -42,6 +42,11 @@ Homepage = "https://vkehfdl1.github.io/noise-cancel/"
 Repository = "https://github.com/vkehfdl1/noise-cancel"
 Documentation = "https://vkehfdl1.github.io/noise-cancel/"
 
+[project.optional-dependencies]
+semantic = [
+    "sentence-transformers>=3.0.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=7.2.0",
@@ -126,4 +131,4 @@ ignore = [
 preview = true
 
 [tool.deptry.per_rule_ignores]
-DEP002 = ["playwright", "anthropic", "praw", "pydantic-settings", "slack-sdk", "uvicorn"]
+DEP002 = ["playwright", "anthropic", "praw", "pydantic-settings", "sentence-transformers", "slack-sdk", "uvicorn"]

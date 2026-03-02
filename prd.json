@@ -101,7 +101,7 @@
         "REQ-041: `make check && make test` passes."
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
@@ -118,7 +118,7 @@
         "REQ-048: `make check && make test` passes."
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {

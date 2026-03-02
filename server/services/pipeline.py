@@ -9,6 +9,8 @@ from typing import Any, cast
 from noise_cancel.classifier.engine import ClassificationEngine
 from noise_cancel.config import AppConfig
 from noise_cancel.content_hash import compute_content_hash
+from noise_cancel.dedup.embedder import create_embedder_from_config
+from noise_cancel.dedup.semantic import ClaudeDuplicateVerifier, SemanticDeduplicator
 from noise_cancel.logger.repository import (
     get_unclassified_posts,
     insert_classification,
@@ -62,6 +64,127 @@ def _platform_scoped_config(
     return scoped
 
 
+def _semantic_dedup_enabled(config: AppConfig) -> bool:
+    dedup_config = config.dedup.get("semantic", {})
+    return bool(dedup_config.get("enabled", False))
+
+
+def _deduplicate_posts(
+    conn: sqlite3.Connection,
+    config: AppConfig,
+    posts: list[Post],
+) -> list[Post]:
+    if not posts or not _semantic_dedup_enabled(config):
+        return posts
+
+    deduplicator = SemanticDeduplicator(
+        conn=conn,
+        config=config,
+        embedder=create_embedder_from_config(config),
+        verifier=ClaudeDuplicateVerifier(config).verify,
+    )
+    return deduplicator.deduplicate(posts)
+
+
+async def _scrape_platform_posts(
+    config: AppConfig,
+    platform: str,
+    platform_config: dict[str, Any],
+) -> list[Post]:
+    scraper_class = SCRAPER_REGISTRY.get(platform)
+    scoped_config = _platform_scoped_config(config, platform_config)
+    scraper = cast(Any, scraper_class)(scoped_config)
+    try:
+        scroll_count = int(platform_config.get("scroll_count", scoped_config.scraper.get("scroll_count", 10)))
+        platform_posts = await scraper.scrape_feed(scroll_count=scroll_count)
+    finally:
+        await _close_scraper(scraper)
+
+    for post in platform_posts:
+        post.platform = platform
+    return platform_posts
+
+
+async def _scrape_posts(config: AppConfig) -> list[Post]:
+    scraped_posts: list[Post] = []
+    for platform, platform_config in _enabled_platform_configs(config):
+        platform_posts = await _scrape_platform_posts(config, platform, platform_config)
+        scraped_posts.extend(platform_posts)
+    return scraped_posts
+
+
+def _persist_scraped_posts(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    scraped_posts: list[Post],
+    limit: int,
+) -> list[Post]:
+    posts_for_classification: list[Post] = []
+    for post in scraped_posts[:limit]:
+        post.run_id = run_id
+        post.content_hash = compute_content_hash(post.post_text)
+        try:
+            insert_post(conn, post)
+        except sqlite3.IntegrityError:
+            continue
+        posts_for_classification.append(post)
+    return posts_for_classification
+
+
+async def _prepare_posts_for_classification(
+    conn: sqlite3.Connection,
+    config: AppConfig,
+    run_id: str,
+    limit: int,
+    skip_scrape: bool,
+) -> tuple[list[Post], int]:
+    if skip_scrape:
+        rows = get_unclassified_posts(conn, limit=limit)
+        return [Post(**row) for row in rows], 0
+
+    scraped_posts = await _scrape_posts(config)
+    posts_for_classification = _persist_scraped_posts(
+        conn,
+        run_id=run_id,
+        scraped_posts=scraped_posts,
+        limit=limit,
+    )
+    return posts_for_classification, len(posts_for_classification)
+
+
+def _classify_posts(
+    conn: sqlite3.Connection,
+    config: AppConfig,
+    posts_for_classification: list[Post],
+) -> int:
+    if not posts_for_classification:
+        return 0
+
+    engine = ClassificationEngine(config)
+    results = engine.classify_posts(posts_for_classification)
+    model_used = config.classifier.get("model", "unknown")
+    posts_classified = 0
+
+    for result in results:
+        classification = Classification(
+            id=uuid.uuid4().hex,
+            post_id=posts_for_classification[result.post_index].id,
+            category=result.category,
+            confidence=result.confidence,
+            reasoning=result.reasoning,
+            summary=result.summary,
+            applied_rules=result.applied_rules,
+            model_used=model_used,
+        )
+        try:
+            insert_classification(conn, classification)
+        except sqlite3.IntegrityError:
+            continue
+        posts_classified += 1
+    return posts_classified
+
+
 async def run_pipeline(
     conn: sqlite3.Connection,
     config: AppConfig,
@@ -73,64 +196,16 @@ async def run_pipeline(
     posts_classified = 0
 
     try:
-        posts_for_classification: list[Post]
+        posts_for_classification, posts_scraped = await _prepare_posts_for_classification(
+            conn,
+            config,
+            run_id,
+            limit,
+            skip_scrape,
+        )
 
-        if skip_scrape:
-            rows = get_unclassified_posts(conn, limit=limit)
-            posts_for_classification = [Post(**row) for row in rows]
-        else:
-            enabled_platforms = _enabled_platform_configs(config)
-            scraped_posts: list[Post] = []
-
-            for platform, platform_config in enabled_platforms:
-                scraper_class = SCRAPER_REGISTRY.get(platform)
-                scoped_config = _platform_scoped_config(config, platform_config)
-                scraper = cast(Any, scraper_class)(scoped_config)
-                try:
-                    scroll_count = int(
-                        platform_config.get("scroll_count", scoped_config.scraper.get("scroll_count", 10))
-                    )
-                    platform_posts = await scraper.scrape_feed(scroll_count=scroll_count)
-                finally:
-                    await _close_scraper(scraper)
-
-                for post in platform_posts:
-                    post.platform = platform
-                scraped_posts.extend(platform_posts)
-
-            posts_for_classification = []
-            for post in scraped_posts[:limit]:
-                post.run_id = run_id
-                post.content_hash = compute_content_hash(post.post_text)
-                try:
-                    insert_post(conn, post)
-                except sqlite3.IntegrityError:
-                    continue
-                posts_for_classification.append(post)
-
-            posts_scraped = len(posts_for_classification)
-
-        if posts_for_classification:
-            engine = ClassificationEngine(config)
-            results = engine.classify_posts(posts_for_classification)
-            model_used = config.classifier.get("model", "unknown")
-
-            for result in results:
-                classification = Classification(
-                    id=uuid.uuid4().hex,
-                    post_id=posts_for_classification[result.post_index].id,
-                    category=result.category,
-                    confidence=result.confidence,
-                    reasoning=result.reasoning,
-                    summary=result.summary,
-                    applied_rules=result.applied_rules,
-                    model_used=model_used,
-                )
-                try:
-                    insert_classification(conn, classification)
-                except sqlite3.IntegrityError:
-                    continue
-                posts_classified += 1
+        posts_for_classification = _deduplicate_posts(conn, config, posts_for_classification)
+        posts_classified = _classify_posts(conn, config, posts_for_classification)
 
         update_run_log(
             conn,

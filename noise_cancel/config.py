@@ -81,6 +81,15 @@ _DEFAULT_DELIVERY: dict[str, Any] = {
     },
 }
 
+_DEFAULT_DEDUP: dict[str, Any] = {
+    "semantic": {
+        "enabled": False,
+        "provider": "sentence-transformers",
+        "model": "all-MiniLM-L6-v2",
+        "threshold": 0.85,
+    }
+}
+
 _DEFAULT_SERVER: dict[str, Any] = {
     "cors_origins": ["*"],
     "api_key": "",
@@ -179,12 +188,14 @@ class AppConfig(BaseModel):
     scraper: dict[str, Any] = Field(default_factory=lambda: _deep_merge({}, _DEFAULT_SCRAPER))
     classifier: dict[str, Any] = Field(default_factory=lambda: _deep_merge({}, _DEFAULT_CLASSIFIER))
     delivery: dict[str, Any] = Field(default_factory=lambda: _deep_merge({}, _DEFAULT_DELIVERY))
+    dedup: dict[str, Any] = Field(default_factory=lambda: _deep_merge({}, _DEFAULT_DEDUP))
     server: dict[str, Any] = Field(default_factory=lambda: _deep_merge({}, _DEFAULT_SERVER))
 
     @model_validator(mode="after")
     def normalize_sections(self) -> AppConfig:
         self.scraper = _normalize_scraper_config(self.scraper)
         self.delivery = _normalize_delivery_config(self.delivery)
+        self.dedup = _deep_merge(_DEFAULT_DEDUP, self.dedup)
         return self
 
 
@@ -283,6 +294,13 @@ delivery:
     include_reasoning: true
     max_text_preview: 300
 
+dedup:
+  semantic:
+    enabled: false
+    provider: sentence-transformers
+    model: all-MiniLM-L6-v2
+    threshold: 0.85
+
 server:
   cors_origins:
     - "*"
@@ -323,6 +341,7 @@ def load_config(config_path: str | None = None) -> AppConfig:
         "scraper": raw_scraper,
         "classifier": _deep_merge(_DEFAULT_CLASSIFIER, raw.get("classifier", {})),
         "delivery": _deep_merge(_DEFAULT_DELIVERY, raw.get("delivery", {})),
+        "dedup": _deep_merge(_DEFAULT_DEDUP, raw.get("dedup", {})),
         "server": _deep_merge(_DEFAULT_SERVER, raw.get("server", {})),
     }
 

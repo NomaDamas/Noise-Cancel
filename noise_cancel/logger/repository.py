@@ -85,7 +85,7 @@ _ALLOWED_RUN_LOG_COLUMNS = frozenset({
     "posts_delivered",
     "error_message",
 })
-_ALLOWED_SWIPE_STATUSES = frozenset({"pending", "archived", "deleted"})
+_ALLOWED_SWIPE_STATUSES = frozenset({"pending", "archived", "deleted", "duplicate"})
 
 
 def update_run_log(conn: sqlite3.Connection, run_id: str, **kwargs: object) -> None:

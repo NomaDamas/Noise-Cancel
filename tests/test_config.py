@@ -11,6 +11,10 @@ def test_default_config_creation():
     assert config.general["max_posts_per_run"] == 50
     assert config.classifier["model"] == "claude-sonnet-4-6"
     assert config.delivery["plugins"][0]["type"] == "slack"
+    assert config.dedup["semantic"]["enabled"] is False
+    assert config.dedup["semantic"]["provider"] == "sentence-transformers"
+    assert config.dedup["semantic"]["model"] == "all-MiniLM-L6-v2"
+    assert config.dedup["semantic"]["threshold"] == 0.85
     assert config.server["cors_origins"] == ["*"]
     assert config.server["api_key"] == ""
 
@@ -122,6 +126,10 @@ def test_generate_default_config_is_loadable(tmp_path: Path):
     assert config.classifier["model"] == "claude-sonnet-4-6"
     assert config.delivery["slack"]["include_categories"] == ["Read"]
     assert config.delivery["plugins"][0]["type"] == "slack"
+    assert config.dedup["semantic"]["enabled"] is False
+    assert config.dedup["semantic"]["provider"] == "sentence-transformers"
+    assert config.dedup["semantic"]["model"] == "all-MiniLM-L6-v2"
+    assert config.dedup["semantic"]["threshold"] == 0.85
     assert config.server["cors_origins"] == ["*"]
     assert config.server["api_key"] == ""
 
@@ -206,6 +214,29 @@ def test_load_config_uses_default_server_api_key(tmp_path: Path):
     config = load_config(str(config_file))
 
     assert config.server["api_key"] == ""
+
+
+def test_load_config_supports_semantic_dedup_overrides(tmp_path: Path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        yaml.dump({
+            "dedup": {
+                "semantic": {
+                    "enabled": True,
+                    "provider": "openai",
+                    "model": "text-embedding-3-small",
+                    "threshold": 0.91,
+                }
+            }
+        })
+    )
+
+    config = load_config(str(config_file))
+
+    assert config.dedup["semantic"]["enabled"] is True
+    assert config.dedup["semantic"]["provider"] == "openai"
+    assert config.dedup["semantic"]["model"] == "text-embedding-3-small"
+    assert config.dedup["semantic"]["threshold"] == 0.91
 
 
 def test_default_scraper_config_has_linkedin_platform():
