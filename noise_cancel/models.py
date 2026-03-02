@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -19,6 +20,7 @@ class Post(BaseModel):
     content_hash: str | None = None
     media_type: str | None = None
     post_timestamp: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
     scraped_at: str = Field(default_factory=_now_iso)
     run_id: str | None = None
 

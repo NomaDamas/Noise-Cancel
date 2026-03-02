@@ -26,11 +26,21 @@ _DEFAULT_SCRAPER_BASE: dict[str, Any] = {
 }
 
 _DEFAULT_SCRAPER_PLATFORM: dict[str, Any] = {"enabled": True, **_DEFAULT_SCRAPER_BASE}
+_DEFAULT_REDDIT_PLATFORM: dict[str, Any] = {
+    "enabled": False,
+    **_DEFAULT_SCRAPER_BASE,
+    "feed_sort": "best",
+    "client_id": "",
+    "client_secret": "",
+    "username": "",
+    "password": "",
+}
 
 _DEFAULT_SCRAPER: dict[str, Any] = {
     **_DEFAULT_SCRAPER_BASE,
     "platforms": {
         "linkedin": dict(_DEFAULT_SCRAPER_PLATFORM),
+        "reddit": dict(_DEFAULT_REDDIT_PLATFORM),
     },
 }
 
@@ -225,6 +235,13 @@ scraper:
       scroll_delay_min: 1.5
       scroll_delay_max: 3.5
       session_ttl_days: 7
+    reddit:
+      enabled: false
+      feed_sort: best  # best|hot
+      client_id: "$NC_REDDIT_CLIENT_ID"
+      client_secret: "$NC_REDDIT_CLIENT_SECRET"
+      username: "$NC_REDDIT_USERNAME"
+      password: "$NC_REDDIT_PASSWORD"
 
 classifier:
   model: claude-sonnet-4-6

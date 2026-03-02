@@ -242,3 +242,31 @@ def test_load_config_migrates_legacy_scraper_to_platforms(tmp_path: Path):
     assert linkedin["headless"] is False
     assert linkedin["scroll_count"] == 2
     assert linkedin["enabled"] is True
+
+
+def test_load_config_supports_reddit_platform_credentials(tmp_path: Path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        yaml.dump({
+            "scraper": {
+                "platforms": {
+                    "reddit": {
+                        "enabled": True,
+                        "client_id": "$NC_REDDIT_CLIENT_ID",
+                        "client_secret": "$NC_REDDIT_CLIENT_SECRET",
+                        "username": "$NC_REDDIT_USERNAME",
+                        "password": "$NC_REDDIT_PASSWORD",
+                    }
+                }
+            }
+        })
+    )
+
+    config = load_config(str(config_file))
+    reddit = config.scraper["platforms"]["reddit"]
+
+    assert reddit["enabled"] is True
+    assert reddit["client_id"] == "$NC_REDDIT_CLIENT_ID"
+    assert reddit["client_secret"] == "$NC_REDDIT_CLIENT_SECRET"  # noqa: S105
+    assert reddit["username"] == "$NC_REDDIT_USERNAME"
+    assert reddit["password"] == "$NC_REDDIT_PASSWORD"  # noqa: S105
