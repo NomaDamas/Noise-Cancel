@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noise_cancel_app/models/post.dart';
+import 'package:noise_cancel_app/services/share_service.dart';
 import 'package:noise_cancel_app/widgets/expanded_content.dart';
 import 'package:noise_cancel_app/widgets/post_card.dart';
 
@@ -27,12 +28,23 @@ Post _buildPost({
   );
 }
 
+class FakeShareService implements ShareService {
+  final List<Post> sharedPosts = <Post>[];
+
+  @override
+  Future<void> sharePost(Post post) async {
+    sharedPosts.add(post);
+  }
+}
+
 Future<void> _pumpPostCard(
   WidgetTester tester,
   Post post, {
   int horizontalOffsetPercentage = 0,
   VoidCallback? onLongPress,
+  ShareService? shareService,
 }) async {
+  final resolvedShareService = shareService ?? const NativeShareService();
   await tester.pumpWidget(
     MaterialApp(
       theme: ThemeData(useMaterial3: false),
@@ -42,6 +54,7 @@ Future<void> _pumpPostCard(
             post: post,
             horizontalOffsetPercentage: horizontalOffsetPercentage,
             onLongPress: onLongPress,
+            shareService: resolvedShareService,
           ),
         ),
       ),
@@ -200,6 +213,24 @@ void main() {
     await _pumpPostCard(tester, _buildPost(note: null));
 
     expect(find.text('📝'), findsNothing);
+  });
+
+  testWidgets('shows share button and forwards post to share service', (
+    WidgetTester tester,
+  ) async {
+    final shareService = FakeShareService();
+    await _pumpPostCard(
+      tester,
+      _buildPost(note: 'Remember to send this'),
+      shareService: shareService,
+    );
+
+    expect(find.byKey(const Key('post-card-share-button')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('post-card-share-button')));
+    await tester.pump();
+
+    expect(shareService.sharedPosts, hasLength(1));
+    expect(shareService.sharedPosts.single.note, 'Remember to send this');
   });
 
   testWidgets('invokes onLongPress callback on long press', (

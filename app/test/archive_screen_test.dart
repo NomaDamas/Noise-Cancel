@@ -190,6 +190,7 @@ void main() {
     await tester.tap(find.byKey(const Key('archive-item-cls-0')));
     await tester.pumpAndSettle();
     expect(find.byType(ExpandedContent), findsOneWidget);
+    expect(find.byKey(const Key('expanded-share-button')), findsOneWidget);
   });
 
   testWidgets('loads next page on scroll when more archived items exist',

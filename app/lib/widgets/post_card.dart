@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:noise_cancel_app/models/post.dart';
+import 'package:noise_cancel_app/services/share_service.dart';
 import 'package:noise_cancel_app/widgets/expanded_content.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -21,11 +22,13 @@ class PostCard extends StatelessWidget {
     required this.post,
     this.horizontalOffsetPercentage = 0,
     this.onLongPress,
+    this.shareService = const NativeShareService(),
   });
 
   final Post post;
   final int horizontalOffsetPercentage;
   final VoidCallback? onLongPress;
+  final ShareService shareService;
 
   static const _saveColor = Color(0xFF4CAF50);
   static const _dropColor = Color(0xFFEF5350);
@@ -81,7 +84,10 @@ class PostCard extends StatelessWidget {
       ),
       builder: (_) => SizedBox(
         height: MediaQuery.of(context).size.height * 0.85,
-        child: ExpandedContent(post: post),
+        child: ExpandedContent(
+          post: post,
+          shareService: shareService,
+        ),
       ),
     );
   }
@@ -98,6 +104,19 @@ class PostCard extends StatelessWidget {
     }
 
     await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _sharePost(BuildContext context) async {
+    try {
+      await shareService.sharePost(post);
+    } catch (_) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('공유를 시작하지 못했습니다.')),
+      );
+    }
   }
 
   @override
@@ -208,6 +227,16 @@ class PostCard extends StatelessWidget {
                   ),
                 ),
               ],
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  key: const Key('post-card-share-button'),
+                  onPressed: () => _sharePost(context),
+                  icon: const Icon(Icons.share_outlined),
+                  tooltip: '공유',
+                ),
+              ),
             ],
           ),
         ),
