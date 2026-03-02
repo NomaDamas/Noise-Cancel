@@ -172,6 +172,52 @@ def _render_stats_output(payload: dict, limit_posts: int) -> None:
         console.print("No classification details found for this run.")
 
 
+def _render_feedback_breakdown(title: str, rows: list[dict], label_key: str) -> None:
+    table = Table(title=title)
+    table.add_column(label_key)
+    table.add_column("archive", justify="right")
+    table.add_column("delete", justify="right")
+    table.add_column("total", justify="right")
+    table.add_column("archive_ratio", justify="right")
+    table.add_column("delete_ratio", justify="right")
+    for row in rows:
+        table.add_row(
+            row[label_key],
+            str(row["archive_count"]),
+            str(row["delete_count"]),
+            str(row["total"]),
+            f"{row['archive_ratio']:.3f}",
+            f"{row['delete_ratio']:.3f}",
+        )
+    console.print(table)
+
+
+def _render_feedback_stats_output(payload: dict) -> None:
+    total_feedback = payload["total_feedback"]
+    console.print(f"Total Feedback: {total_feedback}")
+    if total_feedback == 0:
+        console.print("No feedback records found.")
+        return
+
+    _render_feedback_breakdown("Archive/Delete Ratio by Platform", payload["by_platform"], "platform")
+    _render_feedback_breakdown("Archive/Delete Ratio by Category", payload["by_category"], "category")
+
+    overrides = payload["override_confidence"]
+    console.print(f"Override Count: {overrides['total_overrides']}")
+    avg_confidence = overrides["average_confidence"]
+    if avg_confidence is None:
+        console.print("Average Override Confidence: -")
+    else:
+        console.print(f"Average Override Confidence: {avg_confidence:.3f}")
+
+    distribution_table = Table(title='Override Confidence Distribution (delete "Read" or archive "Skip")')
+    distribution_table.add_column("bucket")
+    distribution_table.add_column("count", justify="right")
+    for row in overrides["distribution"]:
+        distribution_table.add_row(row["bucket"], str(row["count"]))
+    console.print(distribution_table)
+
+
 @app.command()
 def init(
     config_path: str | None = typer.Option(None, "--config", help="Path to write config YAML"),
@@ -683,3 +729,22 @@ def stats(
         return
 
     _render_stats_output(payload, limit_posts)
+
+
+@app.command("feedback-stats")
+def feedback_stats(
+    config_path: str | None = typer.Option(None, "--config"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """Show swipe feedback accumulation statistics."""
+    from noise_cancel.logger.repository import get_feedback_stats
+
+    cfg = _get_config(config_path)
+    conn = _get_db(cfg)
+    payload = get_feedback_stats(conn)
+
+    if as_json:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    _render_feedback_stats_output(payload)

@@ -318,11 +318,17 @@ def _seed_db(tmp_path: Path) -> tuple[Path, Path]:
     return config_path, data_dir
 
 
-def _insert_post(conn, post_id: str = "p1", author: str = "Alice", text: str = "Hello world") -> None:
+def _insert_post(
+    conn,
+    post_id: str = "p1",
+    author: str = "Alice",
+    text: str = "Hello world",
+    platform: str = "linkedin",
+) -> None:
     """Insert a minimal post row via raw SQL."""
     conn.execute(
         "INSERT INTO posts (id, platform, author_name, post_text, scraped_at) VALUES (?, ?, ?, ?, ?)",
-        (post_id, "linkedin", author, text, "2025-01-01T00:00:00"),
+        (post_id, platform, author, text, "2025-01-01T00:00:00"),
     )
     conn.commit()
 
@@ -388,6 +394,25 @@ def _insert_run_log(
             posts_delivered,
             error_message,
         ),
+    )
+    conn.commit()
+
+
+def _insert_feedback(
+    conn,
+    feedback_id: str,
+    classification_id: str,
+    action: str,
+    platform: str,
+    category: str,
+    confidence: float,
+    created_at: str = "2025-01-01T00:10:00+00:00",
+) -> None:
+    conn.execute(
+        """INSERT INTO feedback
+           (id, classification_id, action, platform, category, confidence, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (feedback_id, classification_id, action, platform, category, confidence, created_at),
     )
     conn.commit()
 
@@ -995,6 +1020,95 @@ class TestStatsCommand:
         result = runner.invoke(app, ["stats", "--config", str(config_path)])
         assert result.exit_code == 0
         assert "No classify runs found." in result.output
+
+
+# ===========================================================================
+# Feedback stats command tests
+# ===========================================================================
+
+
+class TestFeedbackStatsCommand:
+    def test_feedback_stats_json_payload(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+
+        _insert_run_log(conn, "run-1", "classify", started_at="2025-01-01T00:00:00")
+        _insert_post(conn, "p1", "Alice", "post one", platform="linkedin")
+        _insert_post(conn, "p2", "Bob", "post two", platform="x")
+        _insert_classification(conn, "c1", "p1", "Read", confidence=0.9)
+        _insert_classification(conn, "c2", "p2", "Skip", confidence=0.2)
+        _insert_feedback(conn, "f1", "c1", "delete", "linkedin", "Read", 0.9)
+        _insert_feedback(conn, "f2", "c2", "archive", "x", "Skip", 0.2)
+        conn.close()
+
+        result = runner.invoke(app, ["feedback-stats", "--config", str(config_path), "--json"])
+        assert result.exit_code == 0
+
+        payload = json.loads(result.output)
+        assert payload["total_feedback"] == 2
+        assert payload["by_platform"] == [
+            {
+                "platform": "linkedin",
+                "archive_count": 0,
+                "delete_count": 1,
+                "total": 1,
+                "archive_ratio": 0.0,
+                "delete_ratio": 1.0,
+            },
+            {
+                "platform": "x",
+                "archive_count": 1,
+                "delete_count": 0,
+                "total": 1,
+                "archive_ratio": 1.0,
+                "delete_ratio": 0.0,
+            },
+        ]
+        assert payload["by_category"] == [
+            {
+                "category": "Read",
+                "archive_count": 0,
+                "delete_count": 1,
+                "total": 1,
+                "archive_ratio": 0.0,
+                "delete_ratio": 1.0,
+            },
+            {
+                "category": "Skip",
+                "archive_count": 1,
+                "delete_count": 0,
+                "total": 1,
+                "archive_ratio": 1.0,
+                "delete_ratio": 0.0,
+            },
+        ]
+        assert payload["override_confidence"] == {
+            "total_overrides": 2,
+            "average_confidence": 0.55,
+            "distribution": [
+                {"bucket": "0.0-0.2", "count": 0},
+                {"bucket": "0.2-0.4", "count": 1},
+                {"bucket": "0.4-0.6", "count": 0},
+                {"bucket": "0.6-0.8", "count": 0},
+                {"bucket": "0.8-1.0", "count": 1},
+            ],
+        }
+
+    def test_feedback_stats_table_output(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        conn.close()
+
+        result = runner.invoke(app, ["feedback-stats", "--config", str(config_path)])
+        assert result.exit_code == 0
+        assert "Total Feedback: 0" in result.output
+        assert "No feedback records found." in result.output
 
 
 # ===========================================================================

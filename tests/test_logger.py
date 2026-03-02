@@ -23,6 +23,7 @@ from noise_cancel.logger.repository import (
     count_posts_for_feed,
     delete_note_by_classification_id,
     get_classifications,
+    get_feedback_stats,
     get_note_by_classification_id,
     get_posts,
     get_posts_for_feed,
@@ -33,6 +34,7 @@ from noise_cancel.logger.repository import (
     insert_post,
     insert_run_log,
     mark_delivered,
+    record_feedback_for_classification,
     update_run_log,
     update_swipe_status,
     upsert_note,
@@ -419,6 +421,122 @@ class TestNotes:
         note = get_note_by_classification_id(db_connection, "cls-1")
 
         assert note is None
+
+
+class TestFeedback:
+    def test_record_feedback_for_classification_inserts_context_fields(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post(platform="x"))
+        insert_classification(
+            db_connection,
+            _make_classification(category="Read", confidence=0.87),
+        )
+
+        saved = record_feedback_for_classification(db_connection, "cls-1", "archive")
+
+        assert saved is not None
+        assert saved["classification_id"] == "cls-1"
+        assert saved["action"] == "archive"
+        assert saved["platform"] == "x"
+        assert saved["category"] == "Read"
+        assert saved["confidence"] == 0.87
+        assert saved["id"]
+        parsed = datetime.fromisoformat(saved["created_at"])
+        assert parsed.tzinfo is not None
+        assert parsed.utcoffset() == timedelta(0)
+
+    def test_record_feedback_for_classification_rejects_invalid_action(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        _seed_basic(db_connection)
+
+        with pytest.raises(ValueError, match="Invalid feedback action"):
+            record_feedback_for_classification(db_connection, "cls-1", "maybe")
+
+    def test_record_feedback_for_classification_returns_none_when_missing_classification(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        _seed_basic(db_connection)
+
+        saved = record_feedback_for_classification(db_connection, "missing", "archive")
+        assert saved is None
+        rows = db_connection.execute("SELECT * FROM feedback").fetchall()
+        assert rows == []
+
+    def test_get_feedback_stats_returns_platform_category_ratios_and_override_distribution(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post("post-1", platform="linkedin"))
+        insert_post(db_connection, _make_post("post-2", platform="linkedin"))
+        insert_post(db_connection, _make_post("post-3", platform="x"))
+        insert_post(db_connection, _make_post("post-4", platform="x"))
+        insert_classification(db_connection, _make_classification("cls-1", "post-1", "Read", confidence=0.95))
+        insert_classification(db_connection, _make_classification("cls-2", "post-2", "Read", confidence=0.82))
+        insert_classification(db_connection, _make_classification("cls-3", "post-3", "Skip", confidence=0.21))
+        insert_classification(db_connection, _make_classification("cls-4", "post-4", "Skip", confidence=0.11))
+
+        record_feedback_for_classification(db_connection, "cls-1", "archive")
+        record_feedback_for_classification(db_connection, "cls-2", "delete")
+        record_feedback_for_classification(db_connection, "cls-3", "archive")
+        record_feedback_for_classification(db_connection, "cls-4", "delete")
+
+        stats = get_feedback_stats(db_connection)
+        assert stats["total_feedback"] == 4
+
+        by_platform = {row["platform"]: row for row in stats["by_platform"]}
+        assert by_platform["linkedin"] == {
+            "platform": "linkedin",
+            "archive_count": 1,
+            "delete_count": 1,
+            "total": 2,
+            "archive_ratio": 0.5,
+            "delete_ratio": 0.5,
+        }
+        assert by_platform["x"] == {
+            "platform": "x",
+            "archive_count": 1,
+            "delete_count": 1,
+            "total": 2,
+            "archive_ratio": 0.5,
+            "delete_ratio": 0.5,
+        }
+
+        by_category = {row["category"]: row for row in stats["by_category"]}
+        assert by_category["Read"] == {
+            "category": "Read",
+            "archive_count": 1,
+            "delete_count": 1,
+            "total": 2,
+            "archive_ratio": 0.5,
+            "delete_ratio": 0.5,
+        }
+        assert by_category["Skip"] == {
+            "category": "Skip",
+            "archive_count": 1,
+            "delete_count": 1,
+            "total": 2,
+            "archive_ratio": 0.5,
+            "delete_ratio": 0.5,
+        }
+
+        overrides = stats["override_confidence"]
+        assert overrides["total_overrides"] == 2
+        assert overrides["average_confidence"] == pytest.approx(0.515)
+        distribution = {row["bucket"]: row["count"] for row in overrides["distribution"]}
+        assert distribution == {
+            "0.0-0.2": 0,
+            "0.2-0.4": 1,
+            "0.4-0.6": 0,
+            "0.6-0.8": 0,
+            "0.8-1.0": 1,
+        }
 
 
 # ---------------------------------------------------------------------------

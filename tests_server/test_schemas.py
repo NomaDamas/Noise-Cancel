@@ -5,14 +5,19 @@ from pydantic import BaseModel, ValidationError
 
 from server.schemas import (
     ArchiveResponse,
+    CategoryFeedbackBreakdownRow,
     DeleteResponse,
     DigestGenerateResponse,
+    FeedbackStatsResponse,
     NoteDeleteResponse,
     NoteResponse,
     NoteUpsertRequest,
+    OverrideConfidenceBucket,
+    OverrideConfidenceDistribution,
     PipelineRunRequest,
     PipelineRunResponse,
     PipelineStatusResponse,
+    PlatformFeedbackBreakdownRow,
     PostListResponse,
     PostResponse,
 )
@@ -50,6 +55,11 @@ def test_all_schema_classes_are_pydantic_models():
         PipelineRunResponse,
         PipelineStatusResponse,
         DigestGenerateResponse,
+        PlatformFeedbackBreakdownRow,
+        CategoryFeedbackBreakdownRow,
+        OverrideConfidenceBucket,
+        OverrideConfidenceDistribution,
+        FeedbackStatsResponse,
     ]
     assert all(issubclass(schema, BaseModel) for schema in schema_classes)
 
@@ -168,3 +178,92 @@ def test_digest_generate_response_schema_contract():
     assert set(DigestGenerateResponse.model_fields) == {"digest_text"}
     response = DigestGenerateResponse(digest_text="Daily Feed Digest")
     assert response.model_dump() == {"digest_text": "Daily Feed Digest"}
+
+
+def test_feedback_stats_schema_contract():
+    assert set(PlatformFeedbackBreakdownRow.model_fields) == {
+        "platform",
+        "archive_count",
+        "delete_count",
+        "total",
+        "archive_ratio",
+        "delete_ratio",
+    }
+    assert set(CategoryFeedbackBreakdownRow.model_fields) == {
+        "category",
+        "archive_count",
+        "delete_count",
+        "total",
+        "archive_ratio",
+        "delete_ratio",
+    }
+    assert set(OverrideConfidenceBucket.model_fields) == {"bucket", "count"}
+    assert set(OverrideConfidenceDistribution.model_fields) == {
+        "total_overrides",
+        "average_confidence",
+        "distribution",
+    }
+    assert set(FeedbackStatsResponse.model_fields) == {
+        "total_feedback",
+        "by_platform",
+        "by_category",
+        "override_confidence",
+    }
+
+    response = FeedbackStatsResponse(
+        total_feedback=2,
+        by_platform=[
+            PlatformFeedbackBreakdownRow(
+                platform="linkedin",
+                archive_count=1,
+                delete_count=0,
+                total=1,
+                archive_ratio=1.0,
+                delete_ratio=0.0,
+            )
+        ],
+        by_category=[
+            CategoryFeedbackBreakdownRow(
+                category="Read",
+                archive_count=0,
+                delete_count=1,
+                total=1,
+                archive_ratio=0.0,
+                delete_ratio=1.0,
+            )
+        ],
+        override_confidence=OverrideConfidenceDistribution(
+            total_overrides=1,
+            average_confidence=0.9,
+            distribution=[OverrideConfidenceBucket(bucket="0.8-1.0", count=1)],
+        ),
+    )
+
+    assert response.model_dump() == {
+        "total_feedback": 2,
+        "by_platform": [
+            {
+                "platform": "linkedin",
+                "archive_count": 1,
+                "delete_count": 0,
+                "total": 1,
+                "archive_ratio": 1.0,
+                "delete_ratio": 0.0,
+            }
+        ],
+        "by_category": [
+            {
+                "category": "Read",
+                "archive_count": 0,
+                "delete_count": 1,
+                "total": 1,
+                "archive_ratio": 0.0,
+                "delete_ratio": 1.0,
+            }
+        ],
+        "override_confidence": {
+            "total_overrides": 1,
+            "average_confidence": 0.9,
+            "distribution": [{"bucket": "0.8-1.0", "count": 1}],
+        },
+    }

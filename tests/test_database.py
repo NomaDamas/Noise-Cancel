@@ -19,7 +19,7 @@ def test_apply_migrations(tmp_path):
 
     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     tables = {row[0] for row in cursor.fetchall()}
-    expected = {"posts", "classifications", "run_logs", "embeddings", "notes"}
+    expected = {"posts", "classifications", "run_logs", "embeddings", "notes", "feedback"}
     assert expected.issubset(tables)
     conn.close()
 
@@ -86,7 +86,7 @@ def test_apply_migrations_tracks_latest_migration(tmp_path):
     apply_migrations(conn)
 
     applied = {row[0] for row in conn.execute("SELECT name FROM _migrations").fetchall()}
-    assert "007_add_notes.sql" in applied
+    assert "008_add_feedback.sql" in applied
     conn.close()
 
 
@@ -100,6 +100,20 @@ def test_notes_table_columns(db_connection):
     cursor = db_connection.execute("PRAGMA table_info(notes)")
     columns = {row[1] for row in cursor.fetchall()}
     assert columns == {"id", "classification_id", "note_text", "created_at", "updated_at"}
+
+
+def test_feedback_table_columns(db_connection):
+    cursor = db_connection.execute("PRAGMA table_info(feedback)")
+    columns = {row[1] for row in cursor.fetchall()}
+    assert columns == {
+        "id",
+        "classification_id",
+        "action",
+        "platform",
+        "category",
+        "confidence",
+        "created_at",
+    }
 
 
 def test_posts_content_hash_index_unique_allows_null(db_connection):

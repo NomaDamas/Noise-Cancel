@@ -87,6 +87,14 @@ _ALLOWED_RUN_LOG_COLUMNS = frozenset({
     "error_message",
 })
 _ALLOWED_SWIPE_STATUSES = frozenset({"pending", "archived", "deleted", "duplicate"})
+_ALLOWED_FEEDBACK_ACTIONS = frozenset({"archive", "delete"})
+_CONFIDENCE_BUCKETS: tuple[tuple[str, float], ...] = (
+    ("0.0-0.2", 0.2),
+    ("0.2-0.4", 0.4),
+    ("0.4-0.6", 0.6),
+    ("0.6-0.8", 0.8),
+    ("0.8-1.0", 1.01),
+)
 
 
 def update_run_log(conn: sqlite3.Connection, run_id: str, **kwargs: object) -> None:
@@ -311,6 +319,171 @@ def update_swipe_status(conn: sqlite3.Connection, classification_id: str, status
         (status, now, classification_id),
     )
     conn.commit()
+
+
+def insert_feedback(
+    conn: sqlite3.Connection,
+    classification_id: str,
+    action: str,
+    platform: str | None,
+    category: str | None,
+    confidence: float | None,
+) -> dict:
+    if action not in _ALLOWED_FEEDBACK_ACTIONS:
+        msg = f"Invalid feedback action: {action}"
+        raise ValueError(msg)
+
+    feedback_id = uuid.uuid4().hex
+    created_at = datetime.now(tz=timezone.utc).isoformat()
+    conn.execute(
+        """INSERT INTO feedback
+           (id, classification_id, action, platform, category, confidence, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (feedback_id, classification_id, action, platform, category, confidence, created_at),
+    )
+    conn.commit()
+    row = conn.execute(
+        """SELECT id, classification_id, action, platform, category, confidence, created_at
+           FROM feedback
+           WHERE id = ?""",
+        (feedback_id,),
+    ).fetchone()
+    if row is None:
+        msg = f"Failed to insert feedback id={feedback_id}"
+        raise RuntimeError(msg)
+    return dict(row)
+
+
+def record_feedback_for_classification(
+    conn: sqlite3.Connection,
+    classification_id: str,
+    action: str,
+) -> dict | None:
+    if action not in _ALLOWED_FEEDBACK_ACTIONS:
+        msg = f"Invalid feedback action: {action}"
+        raise ValueError(msg)
+
+    row = conn.execute(
+        """SELECT c.id AS classification_id, p.platform, c.category, c.confidence
+           FROM classifications c
+           INNER JOIN posts p ON p.id = c.post_id
+           WHERE c.id = ?""",
+        (classification_id,),
+    ).fetchone()
+    if row is None:
+        return None
+
+    return insert_feedback(
+        conn=conn,
+        classification_id=row["classification_id"],
+        action=action,
+        platform=row["platform"],
+        category=row["category"],
+        confidence=row["confidence"],
+    )
+
+
+def _ratio(count: int, total: int) -> float:
+    if total == 0:
+        return 0.0
+    return round(count / total, 3)
+
+
+def _build_feedback_breakdown(
+    conn: sqlite3.Connection,
+    label_column: str,
+) -> list[dict]:
+    rows = conn.execute(
+        f"""SELECT COALESCE({label_column}, 'unknown') AS label,
+                   SUM(CASE WHEN action = 'archive' THEN 1 ELSE 0 END) AS archive_count,
+                   SUM(CASE WHEN action = 'delete' THEN 1 ELSE 0 END) AS delete_count,
+                   COUNT(*) AS total
+            FROM feedback
+            GROUP BY COALESCE({label_column}, 'unknown')
+            ORDER BY label""",  # noqa: S608
+    ).fetchall()
+
+    payload: list[dict] = []
+    for row in rows:
+        total = int(row["total"])
+        archive_count = int(row["archive_count"])
+        delete_count = int(row["delete_count"])
+        payload.append({
+            "label": str(row["label"]),
+            "archive_count": archive_count,
+            "delete_count": delete_count,
+            "total": total,
+            "archive_ratio": _ratio(archive_count, total),
+            "delete_ratio": _ratio(delete_count, total),
+        })
+    return payload
+
+
+def _confidence_bucket(confidence: float) -> str:
+    normalized = min(max(confidence, 0.0), 1.0)
+    for label, upper_bound in _CONFIDENCE_BUCKETS:
+        if normalized < upper_bound:
+            return label
+    return _CONFIDENCE_BUCKETS[-1][0]
+
+
+def get_feedback_stats(conn: sqlite3.Connection) -> dict:
+    total_row = conn.execute("SELECT COUNT(*) AS total FROM feedback").fetchone()
+    total_feedback = int(total_row["total"]) if total_row else 0
+
+    platform_rows = _build_feedback_breakdown(conn, "platform")
+    by_platform = [
+        {
+            "platform": row["label"],
+            "archive_count": row["archive_count"],
+            "delete_count": row["delete_count"],
+            "total": row["total"],
+            "archive_ratio": row["archive_ratio"],
+            "delete_ratio": row["delete_ratio"],
+        }
+        for row in platform_rows
+    ]
+
+    category_rows = _build_feedback_breakdown(conn, "category")
+    by_category = [
+        {
+            "category": row["label"],
+            "archive_count": row["archive_count"],
+            "delete_count": row["delete_count"],
+            "total": row["total"],
+            "archive_ratio": row["archive_ratio"],
+            "delete_ratio": row["delete_ratio"],
+        }
+        for row in category_rows
+    ]
+
+    override_rows = conn.execute(
+        """SELECT confidence
+           FROM feedback
+           WHERE (action = 'delete' AND category = 'Read')
+              OR (action = 'archive' AND category = 'Skip')""",
+    ).fetchall()
+    override_confidences = [float(row["confidence"]) for row in override_rows if row["confidence"] is not None]
+
+    distribution_map = {label: 0 for label, _ in _CONFIDENCE_BUCKETS}
+    for confidence in override_confidences:
+        bucket = _confidence_bucket(confidence)
+        distribution_map[bucket] += 1
+
+    average_confidence: float | None = None
+    if override_confidences:
+        average_confidence = round(sum(override_confidences) / len(override_confidences), 3)
+
+    return {
+        "total_feedback": total_feedback,
+        "by_platform": by_platform,
+        "by_category": by_category,
+        "override_confidence": {
+            "total_overrides": len(override_confidences),
+            "average_confidence": average_confidence,
+            "distribution": [{"bucket": label, "count": distribution_map[label]} for label, _ in _CONFIDENCE_BUCKETS],
+        },
+    }
 
 
 def get_note_by_classification_id(
