@@ -266,7 +266,7 @@ def login(
     console.print(f"[cyan]Opening browser for {platform} login...[/cyan]")
     console.print("[cyan]Please log in manually. Waiting up to 5 minutes...[/cyan]")
 
-    scraper = scraper_class(cfg)
+    scraper = scraper_class(cfg)  # type: ignore[call-arg]
     try:
         asyncio.run(scraper.login(headed=True))
     except KeyboardInterrupt:
@@ -349,7 +349,7 @@ def scrape(  # noqa: C901
             console.print(f"[yellow]Skipping unknown platform '{plat_name}'.[/yellow]")
             continue
 
-        scraper = scraper_class(cfg)
+        scraper = scraper_class(cfg)  # type: ignore[call-arg]
 
         if verbose:
             console.print(f"[cyan]Scraping {plat_name} with {scroll_count} scrolls...[/cyan]")

@@ -291,6 +291,10 @@ async def run_pipeline(
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
 
+    if conn is None:  # unreachable; satisfies type narrowing
+        msg = "No database connection available"
+        raise RuntimeError(msg)
+
     posts_scraped = 0
     posts_classified = 0
 
