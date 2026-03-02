@@ -79,6 +79,25 @@ def test_load_config_accepts_regex_patterns(tmp_path: Path):
     assert config.classifier["whitelist"]["keywords"] == [r"(?i)\bAI\b", r"^Breaking:"]
 
 
+def test_load_config_accepts_platform_specific_classifier_prompts(tmp_path: Path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        yaml.dump({
+            "classifier": {
+                "platform_prompts": {
+                    "x": {"system_prompt": "Classify short-form posts with hashtag context."},
+                    "reddit": {"system_prompt": "Classify posts with subreddit-style discussion context."},
+                }
+            }
+        })
+    )
+
+    config = load_config(str(config_file))
+
+    assert config.classifier["platform_prompts"]["x"]["system_prompt"].startswith("Classify short-form")
+    assert config.classifier["platform_prompts"]["reddit"]["system_prompt"].startswith("Classify posts with subreddit")
+
+
 def test_config_data_dir_default():
     config = AppConfig()
     assert "noise-cancel" in config.general["data_dir"]

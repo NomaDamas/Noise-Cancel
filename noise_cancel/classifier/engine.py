@@ -18,6 +18,8 @@ class ClassificationEngine:
         self._config = config
         self._client = None
         classifier_cfg = self._config.classifier
+        self._default_system_prompt = self._build_default_system_prompt()
+        self._platform_prompt_overrides = self._load_platform_prompt_overrides(classifier_cfg.get("platform_prompts"))
         self._whitelist_patterns = self._compile_rule_patterns(
             "whitelist",
             classifier_cfg.get("whitelist", {}),
@@ -26,6 +28,35 @@ class ClassificationEngine:
             "blacklist",
             classifier_cfg.get("blacklist", {}),
         )
+
+    def _build_default_system_prompt(self) -> str:
+        classifier_cfg = self._config.classifier
+        categories = classifier_cfg.get("categories", [])
+        language = self._config.general.get("language", "english")
+        return build_system_prompt(categories, language=language)
+
+    def _normalize_platform(self, platform: object) -> str:
+        if not isinstance(platform, str):
+            return ""
+        return platform.strip().lower()
+
+    def _load_platform_prompt_overrides(self, platform_prompts: object) -> dict[str, str]:
+        if not isinstance(platform_prompts, dict):
+            return {}
+
+        overrides: dict[str, str] = {}
+        for platform, prompt_config in platform_prompts.items():
+            normalized_platform = self._normalize_platform(platform)
+            if not normalized_platform or not isinstance(prompt_config, dict):
+                continue
+            prompt_fields = {key: value for key, value in prompt_config.items() if isinstance(key, str)}
+            system_prompt = prompt_fields.get("system_prompt")
+            if isinstance(system_prompt, str) and system_prompt:
+                overrides[normalized_platform] = system_prompt
+        return overrides
+
+    def _system_prompt_for_platform(self, platform: str) -> str:
+        return self._platform_prompt_overrides.get(platform, self._default_system_prompt)
 
     def _compile_pattern_list(self, patterns: object, *, field_path: str) -> list[re.Pattern[str]]:
         if not isinstance(patterns, list):
@@ -94,15 +125,17 @@ class ClassificationEngine:
         self._client = anthropic.Anthropic()
         return self._client
 
-    def classify_batch(self, posts: list[Post]) -> list[PostClassification]:
+    def classify_batch(
+        self,
+        posts: list[Post],
+        *,
+        system_prompt: str | None = None,
+    ) -> list[PostClassification]:
         """Classify a batch of posts via Claude API. No whitelist/blacklist filtering here."""
         client = self._get_client()
         cfg = self._config.classifier
-        categories = cfg.get("categories", [])
-
-        language = self._config.general.get("language", "english")
-        system_prompt = build_system_prompt(categories, language=language)
         user_prompt = build_user_prompt(posts)
+        prompt_to_use = system_prompt or self._default_system_prompt
 
         tool_schema = BatchClassificationResult.model_json_schema()
 
@@ -110,7 +143,7 @@ class ClassificationEngine:
             model=cfg["model"],
             max_tokens=4096,
             temperature=cfg.get("temperature", 0.0),
-            system=system_prompt,
+            system=prompt_to_use,
             messages=[{"role": "user", "content": user_prompt}],
             tools=[
                 {
@@ -137,33 +170,35 @@ class ClassificationEngine:
         cfg = self._config.classifier
 
         results: list[PostClassification | None] = [None] * len(posts)
-        needs_api: list[tuple[int, Post]] = []
+        needs_api_by_platform: dict[str, list[tuple[int, Post]]] = {}
 
         for i, post in enumerate(posts):
             rule_result = self._apply_rules(post, i)
             if rule_result is not None:
                 results[i] = rule_result
             else:
-                needs_api.append((i, post))
+                platform = self._normalize_platform(post.platform)
+                needs_api_by_platform.setdefault(platform, []).append((i, post))
 
         # Only call API for posts not caught by whitelist/blacklist
-        if needs_api:
+        if needs_api_by_platform:
             batch_size = cfg.get("batch_size", 10)
-            api_posts = [post for _, post in needs_api]
 
-            api_results: list[PostClassification] = []
-            for start in range(0, len(api_posts), batch_size):
-                batch = api_posts[start : start + batch_size]
-                api_results.extend(self.classify_batch(batch))
+            for platform, indexed_posts in needs_api_by_platform.items():
+                system_prompt = self._system_prompt_for_platform(platform)
+                for start in range(0, len(indexed_posts), batch_size):
+                    indexed_batch = indexed_posts[start : start + batch_size]
+                    batch = [post for _, post in indexed_batch]
+                    api_results = self.classify_batch(batch, system_prompt=system_prompt)
 
-            # Map API results back to original indices
-            for (original_idx, _), api_cls in zip(needs_api, api_results, strict=True):
-                results[original_idx] = PostClassification(
-                    post_index=original_idx,
-                    category=api_cls.category,
-                    confidence=api_cls.confidence,
-                    reasoning=api_cls.reasoning,
-                    summary=api_cls.summary,
-                )
+                    # Map API results back to original indices for this platform-specific batch.
+                    for (original_idx, _), api_cls in zip(indexed_batch, api_results, strict=True):
+                        results[original_idx] = PostClassification(
+                            post_index=original_idx,
+                            category=api_cls.category,
+                            confidence=api_cls.confidence,
+                            reasoning=api_cls.reasoning,
+                            summary=api_cls.summary,
+                        )
 
         return [r for r in results if r is not None]

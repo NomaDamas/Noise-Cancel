@@ -52,6 +52,7 @@ _DEFAULT_CLASSIFIER: dict[str, Any] = {
     ],
     "whitelist": {"keywords": [], "authors": []},
     "blacklist": {"keywords": [], "authors": []},
+    "platform_prompts": {},
 }
 
 _DEFAULT_DELIVERY: dict[str, Any] = {
@@ -242,6 +243,7 @@ classifier:
   blacklist:
     keywords: []     # Regex patterns on post text: if matched, always Skip
     authors: []      # Regex patterns on author name: if matched, always Skip
+  platform_prompts: {{}}  # Optional per-platform prompt overrides (e.g. x/reddit/threads)
 
 delivery:
   method: slack

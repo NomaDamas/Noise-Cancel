@@ -13,9 +13,15 @@ from noise_cancel.models import Post
 # ---------------------------------------------------------------------------
 
 
-def _make_post(index: int = 0, text: str = "Hello world", author: str = "Alice") -> Post:
+def _make_post(
+    index: int = 0,
+    text: str = "Hello world",
+    author: str = "Alice",
+    platform: str = "linkedin",
+) -> Post:
     return Post(
         id=f"post-{index}",
+        platform=platform,
         author_name=author,
         post_text=text,
     )
@@ -528,6 +534,59 @@ class TestClassifyPosts:
         engine = ClassificationEngine(config)
         results = engine.classify_posts([])
         assert results == []
+
+    def test_classify_posts_uses_platform_specific_system_prompts(self):
+        from noise_cancel.classifier.engine import ClassificationEngine
+
+        config = _make_config(
+            batch_size=10,
+            whitelist={"keywords": [], "authors": []},
+            blacklist={"keywords": [], "authors": []},
+            platform_prompts={
+                "x": {"system_prompt": "X_PLATFORM_SYSTEM_PROMPT"},
+                "reddit": {"system_prompt": "REDDIT_PLATFORM_SYSTEM_PROMPT"},
+            },
+        )
+        engine = ClassificationEngine(config)
+
+        mock_client = MagicMock()
+        engine._client = mock_client
+
+        def make_response(batch_size: int) -> MagicMock:
+            classifications = [
+                {"post_index": i, "category": "Read", "confidence": 0.6, "reasoning": "r"} for i in range(batch_size)
+            ]
+            mock_tool_block = MagicMock()
+            mock_tool_block.type = "tool_use"
+            mock_tool_block.input = {"classifications": classifications}
+            mock_response = MagicMock()
+            mock_response.content = [mock_tool_block]
+            mock_response.stop_reason = "tool_use"
+            return mock_response
+
+        # LinkedIn (default prompt), X (override), Reddit (override).
+        mock_client.messages.create.side_effect = [
+            make_response(1),
+            make_response(2),
+            make_response(1),
+        ]
+
+        posts = [
+            _make_post(0, "LinkedIn post", platform="linkedin"),
+            _make_post(1, "X post 1", platform="x"),
+            _make_post(2, "Reddit post", platform="reddit"),
+            _make_post(3, "X post 2", platform="x"),
+        ]
+
+        results = engine.classify_posts(posts)
+
+        assert len(results) == 4
+        assert mock_client.messages.create.call_count == 3
+
+        system_prompts = [call.kwargs["system"] for call in mock_client.messages.create.call_args_list]
+        assert "You are a LinkedIn feed classifier." in system_prompts[0]
+        assert system_prompts[1] == "X_PLATFORM_SYSTEM_PROMPT"
+        assert system_prompts[2] == "REDDIT_PLATFORM_SYSTEM_PROMPT"
 
 
 class TestLazyClient:
