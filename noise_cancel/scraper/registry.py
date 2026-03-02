@@ -31,9 +31,11 @@ SCRAPER_REGISTRY = ScraperRegistry()
 
 def _register_builtin_scrapers() -> None:
     from noise_cancel.scraper.linkedin import LinkedInScraper
+    from noise_cancel.scraper.threads import ThreadsScraper
     from noise_cancel.scraper.x import XScraper
 
     SCRAPER_REGISTRY.register("linkedin", LinkedInScraper)
+    SCRAPER_REGISTRY.register("threads", ThreadsScraper)
     SCRAPER_REGISTRY.register("x", XScraper)
 
 

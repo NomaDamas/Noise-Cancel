@@ -83,7 +83,7 @@
         "REQ-033: `make check && make test` passes."
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": ""
     },
     {
