@@ -111,11 +111,21 @@ general:
   max_posts_per_run: 50                  # Max posts to scrape per run
 
 scraper:
-  headless: true           # Run browser headlessly (false to watch it)
-  scroll_count: 10         # How many times to scroll the feed
-  scroll_delay_min: 1.5    # Min delay between scrolls (seconds)
-  scroll_delay_max: 3.5    # Max delay between scrolls (seconds)
-  session_ttl_days: 7      # Re-login after this many days
+  platforms:
+    linkedin:
+      enabled: true
+      headless: true
+      scroll_count: 10
+      scroll_delay_min: 1.5
+      scroll_delay_max: 3.5
+      session_ttl_days: 7
+    x:
+      enabled: true  # Enable X scraping once you've logged in with XScraper.login()
+      headless: true
+      scroll_count: 10
+      scroll_delay_min: 1.5
+      scroll_delay_max: 3.5
+      session_ttl_days: 7
 
 classifier:
   model: claude-sonnet-4-6  # Claude model to use

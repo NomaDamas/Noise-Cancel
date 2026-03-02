@@ -45,3 +45,23 @@ def is_session_valid(path: str, ttl_days: int = 7) -> bool:
     mtime = p.stat().st_mtime
     age_seconds = time.time() - mtime
     return age_seconds < ttl_days * 86400
+
+
+def validate_session(*, key_path: str, session_path: str, ttl_days: int = 7) -> dict:
+    key_file = Path(key_path)
+    session_file = Path(session_path)
+
+    if not session_file.exists() or not key_file.exists():
+        msg = "No session found. Run login first."
+        raise RuntimeError(msg)
+
+    if not is_session_valid(str(session_file), ttl_days=ttl_days):
+        msg = "Session expired. Run login to refresh."
+        raise RuntimeError(msg)
+
+    key = key_file.read_text().strip()
+    session_data = load_session(key, str(session_file))
+    if session_data is None:
+        msg = "Failed to decrypt session. Run login again."
+        raise RuntimeError(msg)
+    return session_data
