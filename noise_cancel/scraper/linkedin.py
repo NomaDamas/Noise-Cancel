@@ -2,10 +2,20 @@ from __future__ import annotations
 
 import asyncio
 from importlib import import_module
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from noise_cancel.models import Post
 from noise_cancel.scraper.anti_detection import human_scroll_sequence, random_delay, random_viewport
+from noise_cancel.scraper.auth import (
+    session_age_days as get_session_age_days,
+)
+from noise_cancel.scraper.auth import (
+    session_expires_in_days as get_session_expires_in_days,
+)
+from noise_cancel.scraper.auth import (
+    validate_session,
+)
 from noise_cancel.scraper.base import AbstractScraper
 
 if TYPE_CHECKING:
@@ -15,6 +25,8 @@ _LINKEDIN_LOGIN_URL = "https://www.linkedin.com/login"
 _LINKEDIN_FEED_URL = "https://www.linkedin.com/feed"
 _LINKEDIN_FEED_GLOB = "https://www.linkedin.com/feed**"
 _LOGIN_TIMEOUT_MS = 300_000  # 5 minutes
+_LINKEDIN_SESSION_FILE = "session.enc"
+_LINKEDIN_SESSION_KEY_FILE = "session.key"
 
 # JavaScript to extract post data from the LinkedIn feed DOM.
 # Selects activity elements and extracts key fields.
@@ -64,6 +76,34 @@ class LinkedInScraper(AbstractScraper):
         """Set storage state from a previously saved session dict."""
         self._storage_state = state
 
+    def _session_paths(self) -> tuple[Path, Path]:
+        data_dir = Path(self.config.general["data_dir"])
+        key_path = data_dir / _LINKEDIN_SESSION_KEY_FILE
+        session_path = data_dir / _LINKEDIN_SESSION_FILE
+        return key_path, session_path
+
+    def _session_ttl_days(self) -> int:
+        platforms = self.config.scraper.get("platforms", {})
+        linkedin_platform: dict[str, Any] = {}
+        if isinstance(platforms, dict):
+            maybe_linkedin = platforms.get("linkedin", {})
+            if isinstance(maybe_linkedin, dict):
+                linkedin_platform = maybe_linkedin
+
+        ttl_value = linkedin_platform.get("session_ttl_days", self.config.scraper.get("session_ttl_days", 7))
+        try:
+            return int(ttl_value)
+        except (TypeError, ValueError):
+            return 7
+
+    def session_age_days(self) -> float | None:
+        _, session_path = self._session_paths()
+        return get_session_age_days(str(session_path))
+
+    def session_expires_in_days(self) -> float | None:
+        _, session_path = self._session_paths()
+        return get_session_expires_in_days(str(session_path), ttl_days=self._session_ttl_days())
+
     async def login(self, headed: bool = True) -> None:
         """Open browser for manual LinkedIn login. Stores session cookies internally."""
         pw = import_module("playwright.async_api")
@@ -86,6 +126,14 @@ class LinkedInScraper(AbstractScraper):
 
     async def scrape_feed(self, scroll_count: int = 10) -> list[Post]:
         """Scrape LinkedIn feed posts by scrolling and extracting from the DOM."""
+        if self._storage_state is None:
+            key_path, session_path = self._session_paths()
+            self._storage_state = validate_session(
+                key_path=str(key_path),
+                session_path=str(session_path),
+                ttl_days=self._session_ttl_days(),
+            )
+
         pw = import_module("playwright.async_api")
         playwright = await pw.async_playwright().start()
         self._playwright = playwright

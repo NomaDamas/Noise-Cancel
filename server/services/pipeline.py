@@ -11,6 +11,7 @@ from noise_cancel.config import AppConfig
 from noise_cancel.content_hash import compute_content_hash
 from noise_cancel.dedup.embedder import create_embedder_from_config
 from noise_cancel.dedup.semantic import ClaudeDuplicateVerifier, SemanticDeduplicator
+from noise_cancel.delivery.notifier import notify_plugins
 from noise_cancel.logger.repository import (
     get_unclassified_posts,
     insert_classification,
@@ -23,6 +24,79 @@ from noise_cancel.scraper.registry import SCRAPER_REGISTRY
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _platform_display_name(platform: str) -> str:
+    names = {
+        "linkedin": "LinkedIn",
+        "x": "X",
+        "threads": "Threads",
+        "reddit": "Reddit",
+        "rss": "RSS",
+    }
+    return names.get(platform, platform.title())
+
+
+def _session_warning_days(config: AppConfig, platform_config: dict[str, Any]) -> float:
+    raw_warning_days = platform_config.get("session_warning_days", config.scraper.get("session_warning_days", 1))
+    try:
+        warning_days = float(raw_warning_days)
+    except (TypeError, ValueError):
+        return 1.0
+    return max(0.0, warning_days)
+
+
+def _warn_if_session_expiring(
+    scraper: object,
+    config: AppConfig,
+    platform: str,
+    platform_config: dict[str, Any],
+) -> None:
+    session_expires_in_days = getattr(scraper, "session_expires_in_days", None)
+    if not callable(session_expires_in_days):
+        return
+
+    expires_in_days = session_expires_in_days()
+    if expires_in_days is None or expires_in_days <= 0:
+        return
+
+    warning_days = _session_warning_days(config, platform_config)
+    if expires_in_days > warning_days:
+        return
+
+    expires_in_hours = max(1, round(expires_in_days * 24))
+    platform_name = _platform_display_name(platform)
+    notify_plugins(
+        f"⚠️ {platform_name} session expires in ~{expires_in_hours}h. "
+        f"Run `noise-cancel login --platform {platform}` to refresh.",
+        config,
+        stderr_fallback=True,
+    )
+
+
+def _is_session_validation_failure(exc: RuntimeError) -> bool:
+    error_message = str(exc).strip().lower()
+    if "session" not in error_message:
+        return False
+    return any(
+        marker in error_message
+        for marker in (
+            "expired",
+            "invalid",
+            "no session",
+            "run login",
+            "decrypt",
+        )
+    )
+
+
+def _notify_expired_session(config: AppConfig, platform: str) -> None:
+    platform_name = _platform_display_name(platform)
+    notify_plugins(
+        f"❌ {platform_name} session expired.",
+        config,
+        stderr_fallback=True,
+    )
 
 
 async def _close_scraper(scraper: object) -> None:
@@ -95,8 +169,15 @@ async def _scrape_platform_posts(
     scoped_config = _platform_scoped_config(config, platform_config)
     scraper = cast(Any, scraper_class)(scoped_config)
     try:
+        _warn_if_session_expiring(scraper, scoped_config, platform, platform_config)
+
         scroll_count = int(platform_config.get("scroll_count", scoped_config.scraper.get("scroll_count", 10)))
-        platform_posts = await scraper.scrape_feed(scroll_count=scroll_count)
+        try:
+            platform_posts = await scraper.scrape_feed(scroll_count=scroll_count)
+        except RuntimeError as exc:
+            if _is_session_validation_failure(exc):
+                _notify_expired_session(scoped_config, platform)
+            raise
     finally:
         await _close_scraper(scraper)
 

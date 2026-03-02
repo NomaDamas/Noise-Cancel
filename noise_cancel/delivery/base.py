@@ -17,3 +17,12 @@ class DeliveryPlugin(ABC):
 
     @abstractmethod
     def validate_config(self, config: dict[str, Any]) -> None: ...
+
+    def notify(
+        self,
+        message: str,
+        config: AppConfig,
+        plugin_config: dict[str, Any],
+    ) -> bool:
+        del message, config, plugin_config
+        return False

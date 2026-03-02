@@ -23,6 +23,7 @@ _DEFAULT_SCRAPER_BASE: dict[str, Any] = {
     "scroll_delay_min": 1.5,
     "scroll_delay_max": 3.5,
     "session_ttl_days": 7,
+    "session_warning_days": 1,
 }
 
 _DEFAULT_SCRAPER_PLATFORM: dict[str, Any] = {"enabled": True, **_DEFAULT_SCRAPER_BASE}
@@ -245,6 +246,7 @@ general:
   language: english  # Summary language: english, korean, japanese, etc.
 
 scraper:
+  session_warning_days: 1  # Notify N days before a Playwright session expires
   platforms:
     linkedin:
       enabled: true

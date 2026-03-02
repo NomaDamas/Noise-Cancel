@@ -40,6 +40,109 @@ def _build_client(
     return TestClient(create_app()), conn
 
 
+_SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/test"
+_SESSION_EXPIRED_ERROR = "Session expired. Run login to refresh."
+
+
+class FakeSessionExpiredError(RuntimeError):
+    def __init__(self) -> None:
+        super().__init__(_SESSION_EXPIRED_ERROR)
+
+
+def _session_test_config(tmp_path: Path, *, delivery: dict[str, object]) -> AppConfig:
+    return AppConfig(
+        general={"data_dir": str(tmp_path / "data"), "max_posts_per_run": 50, "language": "english"},
+        scraper={
+            "platforms": {
+                "x": {"enabled": True, "scroll_count": 1, "session_warning_days": 1},
+            }
+        },
+        classifier={
+            "model": "claude-sonnet-4-6",
+            "batch_size": 10,
+            "temperature": 0.0,
+            "categories": [],
+            "whitelist": {"keywords": [], "authors": []},
+            "blacklist": {"keywords": [], "authors": []},
+        },
+        delivery=delivery,
+    )
+
+
+def _install_fake_x_registry(monkeypatch, scraper_class: type[object]) -> None:
+    class FakeRegistry:
+        def get(self, platform: str):
+            return {"x": scraper_class}[platform]
+
+    class FakeClassifier:
+        def __init__(self, _config: AppConfig) -> None:
+            pass
+
+        def classify_posts(self, posts: list[Post]) -> list[PostClassification]:
+            assert posts == []
+            return []
+
+    monkeypatch.setattr("server.services.pipeline.SCRAPER_REGISTRY", FakeRegistry())
+    monkeypatch.setattr("server.services.pipeline.ClassificationEngine", FakeClassifier)
+
+
+def _install_fake_x_session_pipeline(monkeypatch, *, expires_in_days: float) -> None:
+    class FakeXScraper:
+        def __init__(self, _config: AppConfig) -> None:
+            pass
+
+        def session_age_days(self) -> float | None:
+            return expires_in_days
+
+        def session_expires_in_days(self) -> float | None:
+            return expires_in_days
+
+        async def scrape_feed(self, scroll_count: int = 10) -> list[Post]:
+            assert scroll_count == 1
+            return []
+
+        async def close(self) -> None:
+            return None
+
+    _install_fake_x_registry(monkeypatch, FakeXScraper)
+
+
+def _install_fake_x_session_pipeline_error(
+    monkeypatch,
+    *,
+    expires_in_days: float,
+    scrape_error: RuntimeError,
+) -> None:
+    class FakeXScraper:
+        def __init__(self, _config: AppConfig) -> None:
+            pass
+
+        def session_age_days(self) -> float | None:
+            return expires_in_days
+
+        def session_expires_in_days(self) -> float | None:
+            return expires_in_days
+
+        async def scrape_feed(self, scroll_count: int = 10) -> list[Post]:
+            assert scroll_count == 1
+            raise scrape_error
+
+        async def close(self) -> None:
+            return None
+
+    _install_fake_x_registry(monkeypatch, FakeXScraper)
+
+
+def _install_fake_slack_sender(monkeypatch, sent_messages: list[str]) -> None:
+
+    def _fake_send_to_slack(webhook_url: str, blocks: list[dict], text: str = "") -> bool:
+        assert webhook_url == _SLACK_WEBHOOK_URL
+        sent_messages.append(text)
+        return True
+
+    monkeypatch.setattr("noise_cancel.delivery.slack.send_to_slack", _fake_send_to_slack)
+
+
 def test_run_pipeline_creates_run_log_and_returns_accepted(tmp_path: Path, monkeypatch) -> None:
     class FakeScraper:
         def __init__(self, _config: AppConfig) -> None:
@@ -420,3 +523,65 @@ def test_get_pipeline_status_returns_latest_run(tmp_path: Path, monkeypatch) -> 
         assert payload["status"] == "running"
         assert payload["posts_scraped"] == 1
         assert payload["posts_classified"] == 0
+
+
+def test_run_pipeline_sends_session_warning_for_expiring_playwright_session(tmp_path: Path, monkeypatch) -> None:
+    config = _session_test_config(
+        tmp_path,
+        delivery={"plugins": [{"type": "slack", "webhook_url": _SLACK_WEBHOOK_URL}]},
+    )
+    sent_messages: list[str] = []
+    _install_fake_x_session_pipeline(monkeypatch, expires_in_days=6 / 24)
+    _install_fake_slack_sender(monkeypatch, sent_messages)
+
+    client, conn = _build_client(tmp_path, monkeypatch, config=config)
+    with client:
+        response = client.post("/api/pipeline/run", json={"limit": 10, "skip_scrape": False})
+
+        assert response.status_code == 202
+        run_id = response.json()["run_id"]
+        run_log = conn.execute("SELECT status FROM run_logs WHERE id = ?", (run_id,)).fetchone()
+        assert run_log is not None
+        assert run_log["status"] == "completed"
+
+    assert sent_messages == ["⚠️ X session expires in ~6h. Run `noise-cancel login --platform x` to refresh."]
+
+
+def test_run_pipeline_sends_expired_alert_before_raising(tmp_path: Path, monkeypatch) -> None:
+    config = _session_test_config(
+        tmp_path,
+        delivery={"plugins": [{"type": "slack", "webhook_url": _SLACK_WEBHOOK_URL}]},
+    )
+    sent_messages: list[str] = []
+    _install_fake_x_session_pipeline_error(
+        monkeypatch,
+        expires_in_days=2.0,
+        scrape_error=FakeSessionExpiredError(),
+    )
+    _install_fake_slack_sender(monkeypatch, sent_messages)
+
+    client, conn = _build_client(tmp_path, monkeypatch, config=config)
+    with client:
+        response = client.post("/api/pipeline/run", json={"limit": 10, "skip_scrape": False})
+
+        assert response.status_code == 202
+        run_id = response.json()["run_id"]
+        run_log = conn.execute("SELECT status, error_message FROM run_logs WHERE id = ?", (run_id,)).fetchone()
+        assert run_log is not None
+        assert run_log["status"] == "error"
+        assert run_log["error_message"] == _SESSION_EXPIRED_ERROR
+
+    assert sent_messages == ["❌ X session expired."]
+
+
+def test_run_pipeline_uses_stderr_fallback_when_no_delivery_plugins(tmp_path: Path, monkeypatch, capsys) -> None:
+    config = _session_test_config(tmp_path, delivery={"method": "", "plugins": []})
+    _install_fake_x_session_pipeline(monkeypatch, expires_in_days=12 / 24)
+
+    client, _ = _build_client(tmp_path, monkeypatch, config=config)
+    with client:
+        response = client.post("/api/pipeline/run", json={"limit": 10, "skip_scrape": False})
+        assert response.status_code == 202
+
+    captured = capsys.readouterr()
+    assert "⚠️ X session expires in ~12h. Run `noise-cancel login --platform x` to refresh." in captured.err

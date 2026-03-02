@@ -8,7 +8,17 @@ from typing import TYPE_CHECKING, Any, cast
 
 from noise_cancel.models import Post
 from noise_cancel.scraper.anti_detection import human_scroll_sequence, random_delay, random_viewport
-from noise_cancel.scraper.auth import generate_key, save_session, validate_session
+from noise_cancel.scraper.auth import (
+    generate_key,
+    save_session,
+    validate_session,
+)
+from noise_cancel.scraper.auth import (
+    session_age_days as get_session_age_days,
+)
+from noise_cancel.scraper.auth import (
+    session_expires_in_days as get_session_expires_in_days,
+)
 from noise_cancel.scraper.base import AbstractScraper
 
 if TYPE_CHECKING:
@@ -86,6 +96,14 @@ class XScraper(AbstractScraper):
             return int(ttl_value)
         except (TypeError, ValueError):
             return 7
+
+    def session_age_days(self) -> float | None:
+        _, session_path = self._session_paths()
+        return get_session_age_days(str(session_path))
+
+    def session_expires_in_days(self) -> float | None:
+        _, session_path = self._session_paths()
+        return get_session_expires_in_days(str(session_path), ttl_days=self._session_ttl_days())
 
     async def login(self, headed: bool = True) -> None:
         pw = import_module("playwright.async_api")

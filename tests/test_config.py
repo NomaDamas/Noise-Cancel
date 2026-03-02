@@ -9,6 +9,7 @@ from noise_cancel.config import AppConfig, ConfigError, generate_default_config,
 def test_default_config_creation():
     config = AppConfig()
     assert config.general["max_posts_per_run"] == 50
+    assert config.scraper["session_warning_days"] == 1
     assert config.classifier["model"] == "claude-sonnet-4-6"
     assert config.delivery["plugins"][0]["type"] == "slack"
     assert config.dedup["semantic"]["enabled"] is False

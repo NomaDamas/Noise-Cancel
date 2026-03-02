@@ -259,6 +259,8 @@ class TestAbstractScraper:
 
         scraper = CompleteScraper()
         assert scraper is not None
+        assert scraper.session_age_days() is None
+        assert scraper.session_expires_in_days() is None
 
 
 # ---------------------------------------------------------------------------

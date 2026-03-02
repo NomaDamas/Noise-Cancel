@@ -34,6 +34,20 @@ class SlackPlugin(DeliveryPlugin):
 
         raise SlackWebhookConfigError()
 
+    def notify(
+        self,
+        message: str,
+        config: AppConfig,
+        plugin_config: dict[str, Any],
+    ) -> bool:
+        slack_config = config.delivery.get("slack", {})
+        webhook_url = (
+            plugin_config.get("webhook_url") or slack_config.get("webhook_url") or os.environ.get("SLACK_WEBHOOK_URL")
+        )
+        if not webhook_url:
+            return False
+        return send_to_slack(webhook_url, [], text=message)
+
 
 def send_to_slack(webhook_url: str, blocks: list[dict], text: str = "") -> bool:
     """Send blocks to Slack via incoming webhook. Return True on success."""
