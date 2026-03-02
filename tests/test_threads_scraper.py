@@ -34,7 +34,7 @@ def _mock_playwright_chain(storage_state: dict | None = None):
 
 def _mock_scrape_playwright(
     *,
-    current_url: str = "https://www.threads.net",
+    current_url: str = "https://www.threads.com",
     raw_posts: list[dict] | None = None,
 ):
     """Build a mock Playwright chain suitable for scrape_feed testing."""
@@ -70,8 +70,15 @@ class TestThreadsScraperLogin:
         scraper = ThreadsScraper(app_config)
         storage = {"cookies": [{"name": "sessionid", "value": "abc123"}]}
         mock_module, mock_pw, mock_browser, _, mock_page = _mock_playwright_chain(storage)
+        # Simulate authenticated feed: evaluate returns True for article check
+        mock_page.evaluate = AsyncMock(return_value=True)
+        type(mock_page).url = PropertyMock(return_value="https://www.threads.com")
 
-        with patch("noise_cancel.scraper.playwright_base.import_module", return_value=mock_module):
+        with (
+            patch("noise_cancel.scraper.threads.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.threads.random_viewport", return_value={"width": 1280, "height": 720}),
+            patch("noise_cancel.scraper.threads.asyncio.sleep", new_callable=AsyncMock),
+        ):
             await scraper.login(headed=True)
 
         data_dir = Path(app_config.general["data_dir"])
@@ -86,8 +93,7 @@ class TestThreadsScraperLogin:
         assert scraper.storage_state == storage
 
         mock_pw.chromium.launch.assert_called_once_with(headless=False)
-        mock_page.goto.assert_called_once_with("https://www.threads.net", wait_until="domcontentloaded")
-        mock_page.wait_for_url.assert_called_once()
+        mock_page.goto.assert_called_once_with("https://www.threads.com/login", wait_until="domcontentloaded")
         mock_browser.close.assert_called_once()
         mock_pw.stop.assert_called_once()
 
@@ -96,9 +102,15 @@ class TestThreadsScraperLogin:
         from noise_cancel.scraper.threads import ThreadsScraper
 
         scraper = ThreadsScraper(app_config)
-        mock_module, mock_pw, *_ = _mock_playwright_chain()
+        mock_module, mock_pw, _, _, mock_page = _mock_playwright_chain()
+        mock_page.evaluate = AsyncMock(return_value=True)
+        type(mock_page).url = PropertyMock(return_value="https://www.threads.com")
 
-        with patch("noise_cancel.scraper.playwright_base.import_module", return_value=mock_module):
+        with (
+            patch("noise_cancel.scraper.threads.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.threads.random_viewport", return_value={"width": 1280, "height": 720}),
+            patch("noise_cancel.scraper.threads.asyncio.sleep", new_callable=AsyncMock),
+        ):
             await scraper.login(headed=False)
 
         mock_pw.chromium.launch.assert_called_once_with(headless=True)
@@ -112,7 +124,8 @@ class TestThreadsScraperLogin:
         mock_page.goto.side_effect = RuntimeError("Connection failed")
 
         with (
-            patch("noise_cancel.scraper.playwright_base.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.threads.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.threads.random_viewport", return_value={"width": 1280, "height": 720}),
             pytest.raises(RuntimeError, match="Connection failed"),
         ):
             await scraper.login()
@@ -146,7 +159,7 @@ class TestThreadsScraperScrapeFeed:
             ttl_days=7,
         )
         mock_context.new_page.assert_called_once()
-        mock_page.goto.assert_called_once_with("https://www.threads.net", wait_until="domcontentloaded")
+        mock_page.goto.assert_called_once_with("https://www.threads.com", wait_until="domcontentloaded")
 
     @pytest.mark.anyio
     async def test_scrape_feed_scrolls_with_humanized_actions(self, app_config):
@@ -183,28 +196,28 @@ class TestThreadsScraperScrapeFeed:
                 "id": "111",
                 "author_name": "Alice",
                 "post_text": "Hello",
-                "post_url": "https://www.threads.net/@alice/post/111",
+                "post_url": "https://www.threads.com/@alice/post/111",
                 "post_timestamp": "2026-03-01T12:00:00.000Z",
             },
             {
                 "id": "111",
                 "author_name": "Alice",
                 "post_text": "Hello",
-                "post_url": "https://www.threads.net/@alice/post/111",
+                "post_url": "https://www.threads.com/@alice/post/111",
                 "post_timestamp": "2026-03-01T12:00:00.000Z",
             },
             {
                 "id": "",
                 "author_name": "Bob",
                 "post_text": "World",
-                "post_url": "https://www.threads.net/@bob/post/222",
+                "post_url": "https://www.threads.com/@bob/post/222",
                 "post_timestamp": "2026-03-01T12:05:00.000Z",
             },
             {
                 "id": "333",
                 "author_name": "Charlie",
                 "post_text": "",
-                "post_url": "https://www.threads.net/@charlie/post/333",
+                "post_url": "https://www.threads.com/@charlie/post/333",
             },
         ]
         scraper = ThreadsScraper(app_config)
@@ -229,7 +242,7 @@ class TestThreadsScraperScrapeFeed:
         from noise_cancel.scraper.threads import ThreadsScraper
 
         scraper = ThreadsScraper(app_config)
-        mock_module, _, _, _, _ = _mock_scrape_playwright(current_url="https://www.threads.net/login")
+        mock_module, _, _, _, _ = _mock_scrape_playwright(current_url="https://www.threads.com/login")
 
         with (
             patch("noise_cancel.scraper.playwright_base.import_module", return_value=mock_module),
@@ -265,13 +278,13 @@ class TestThreadsScraperHelpers:
             "id": "12345",
             "author_name": "Alice",
             "post_text": "Hello from Threads",
-            "post_url": "https://www.threads.net/@alice/post/12345",
+            "post_url": "https://www.threads.com/@alice/post/12345",
             "post_timestamp": "2026-03-01T12:00:00.000Z",
         })
 
         assert post.id == "12345"
         assert post.platform == "threads"
-        assert post.post_url == "https://www.threads.net/@alice/post/12345"
+        assert post.post_url == "https://www.threads.com/@alice/post/12345"
 
     @pytest.mark.anyio
     async def test_close_stops_playwright_instance(self, app_config):

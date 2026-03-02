@@ -1,20 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import re
-from typing import ClassVar
+from importlib import import_module
+from typing import Any, ClassVar, cast
 
 from noise_cancel.models import Post
-from noise_cancel.scraper.playwright_base import PlaywrightScraper
+from noise_cancel.scraper.auth import generate_key, save_session
+from noise_cancel.scraper.playwright_base import PlaywrightScraper, random_viewport
 from noise_cancel.scraper.utils import clean_str, optional_clean_str
 
-_THREADS_LOGIN_URL = "https://www.threads.net"
-_THREADS_HOME_URL = "https://www.threads.net"
-# TODO: This glob is broad and can match error pages. We add a post-login
-# validation check (_post_login_validate) that verifies actual feed content
-# is present before accepting the session. A tighter glob would be preferable
-# but Threads does not expose a reliably distinct authenticated URL pattern.
-_THREADS_HOME_GLOB = "https://www.threads.net/**"
+_THREADS_LOGIN_URL = "https://www.threads.com/login"
+_THREADS_HOME_URL = "https://www.threads.com"
+_THREADS_HOME_GLOB = "https://www.threads.com/**"
 _LOGIN_TIMEOUT_MS = 300_000  # 5 minutes
+_LOGIN_POLL_INTERVAL_S = 2.0  # poll for feed content every N seconds
 _THREADS_POST_ID_RE = re.compile(r"/post/([^/?#]+)")
 _THREADS_SESSION_FILE = "threads_session.enc"
 _THREADS_SESSION_KEY_FILE = "threads_session.key"
@@ -66,30 +66,73 @@ class ThreadsScraper(PlaywrightScraper):
     _session_file = _THREADS_SESSION_FILE
     _session_key_file = _THREADS_SESSION_KEY_FILE
     _js_extract_posts = _JS_EXTRACT_POSTS
-    _invalid_url_indicators: ClassVar[list[str]] = ["/login", "/accounts/login"]
+    _invalid_url_indicators: ClassVar[list[str]] = ["/login", "/accounts/login", "/accounts"]
 
-    async def _post_login_validate(self, page: object) -> None:
-        """Verify the page actually has feed content after login.
+    async def login(self, headed: bool = True) -> None:
+        """Override login to poll for authenticated feed content.
 
-        The home glob is broad (matches any threads.net path), so we check
-        that feed article elements are present to confirm we are on an
-        authenticated feed page rather than an error or login page.
+        Threads keeps the same URL before and after login, so wait_for_url
+        cannot detect login completion. Instead, we navigate to the login page
+        and poll the DOM for feed content (articles or navigation elements)
+        that only appear when authenticated.
         """
-        # page is a Playwright Page object; use evaluate to check for feed content
-        has_feed = await page.evaluate(  # type: ignore[union-attr]
-            "() => document.querySelectorAll('div[role=\"article\"]').length > 0"
-        )
-        if not has_feed:
-            # Also check for a profile avatar or navigation element as secondary signal
-            has_nav = await page.evaluate(  # type: ignore[union-attr]
-                "() => !!(document.querySelector('nav') || document.querySelector('[role=\"navigation\"]'))"
-            )
-            if not has_nav:
-                msg = (
-                    "Post-login validation failed: no feed content or navigation "
-                    "found. The login may not have completed successfully."
-                )
-                raise RuntimeError(msg)
+        pw = import_module("playwright.async_api")
+        playwright = await pw.async_playwright().start()
+        try:
+            browser = await playwright.chromium.launch(headless=not headed)
+            try:
+                context = await browser.new_context(viewport=cast(Any, random_viewport()))
+                page = await context.new_page()
+                await page.goto(self._login_url, wait_until="domcontentloaded")
+
+                # Poll until authenticated feed content appears or timeout.
+                # After login, Threads redirects to the home feed where
+                # role="region" and role="menu" elements appear.
+                # page.evaluate() can throw during navigations (e.g. Instagram
+                # OAuth redirect), so we catch and retry on those errors.
+                deadline = asyncio.get_event_loop().time() + (self._login_timeout_ms / 1000)
+                authenticated = False
+                while asyncio.get_event_loop().time() < deadline:
+                    try:
+                        current_url = page.url
+                        # Skip checks while still on login/accounts pages
+                        if "/login" in current_url or "/accounts" in current_url:
+                            await asyncio.sleep(_LOGIN_POLL_INTERVAL_S)
+                            continue
+                        # Check for feed indicators: region + menu roles appear
+                        # on the authenticated home feed but not on login pages
+                        has_feed_indicators = await page.evaluate(
+                            "() => !!(document.querySelector('[role=\"region\"]')"
+                            " && document.querySelector('[role=\"menu\"]'))"
+                        )
+                        if has_feed_indicators:
+                            authenticated = True
+                            break
+                    except Exception:  # noqa: S110 — expected during page navigations
+                        pass
+                    await asyncio.sleep(_LOGIN_POLL_INTERVAL_S)
+
+                if not authenticated:
+                    msg = "Login timed out: no feed content detected after authentication."
+                    raise RuntimeError(msg)
+
+                self._storage_state = dict(await context.storage_state())
+
+                key_path, session_path = self._session_paths()
+                key_path.parent.mkdir(parents=True, exist_ok=True)
+                if key_path.exists():
+                    key = key_path.read_text().strip()
+                else:
+                    key = generate_key()
+                    key_path.write_text(key)
+                    key_path.chmod(0o600)
+
+                save_session(self._storage_state, key, str(session_path))
+                session_path.chmod(0o600)
+            finally:
+                await browser.close()
+        finally:
+            await playwright.stop()
 
     def _parse_raw_post(self, raw: dict) -> Post:
         post_url = raw.get("post_url")
