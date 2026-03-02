@@ -8,7 +8,7 @@ class PostResponse(BaseModel):
     classification_id: str
     platform: str
     author_name: str
-    author_url: str
+    author_url: str | None = None
     post_url: str | None = None
     post_text: str
     summary: str
