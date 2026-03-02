@@ -160,10 +160,12 @@ def test_get_posts_default_response_shape(tmp_path: Path, monkeypatch) -> None:
             "reasoning",
             "classified_at",
             "swipe_status",
+            "note",
         }
         assert first["category"] == "Read"
         assert first["platform"] == "x"
         assert first["swipe_status"] == "pending"
+        assert first["note"] is None
 
 
 def test_get_posts_filters_by_category_and_swipe_status(tmp_path: Path, monkeypatch) -> None:
@@ -279,6 +281,33 @@ def test_get_post_detail_returns_post_for_valid_classification_id(tmp_path: Path
         assert payload["summary"] == "Summary for cls-2"
         assert payload["platform"] == "x"
         assert payload["swipe_status"] == "pending"
+        assert payload["note"] is None
+
+
+def test_get_post_detail_includes_note_when_present(tmp_path: Path, monkeypatch) -> None:
+    client, conn = _build_client(tmp_path, monkeypatch)
+    with client:
+        _seed_feed_data(conn)
+        conn.execute(
+            """INSERT INTO notes
+               (id, classification_id, note_text, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                "note-1",
+                "cls-2",
+                "Remember to revisit this thread tomorrow",
+                "2026-02-25T11:05:00+00:00",
+                "2026-02-25T11:05:00+00:00",
+            ),
+        )
+        conn.commit()
+
+        response = client.get("/api/posts/cls-2")
+        assert response.status_code == 200
+
+        payload = response.json()
+        assert payload["classification_id"] == "cls-2"
+        assert payload["note"] == "Remember to revisit this thread tomorrow"
 
 
 def test_get_post_detail_returns_404_for_missing_classification_id(tmp_path: Path, monkeypatch) -> None:

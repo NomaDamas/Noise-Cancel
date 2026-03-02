@@ -17,6 +17,7 @@ void main() {
       'reasoning': 'Matches user interests',
       'classified_at': '2026-02-25T10:00:00+00:00',
       'swipe_status': 'pending',
+      'note': null,
     };
 
     final post = Post.fromJson(payload);
@@ -34,6 +35,7 @@ void main() {
     expect(post.reasoning, 'Matches user interests');
     expect(post.classifiedAt, '2026-02-25T10:00:00+00:00');
     expect(post.swipeStatus, 'pending');
+    expect(post.note, isNull);
   });
 
   test('Post.fromJson accepts camelCase keys used in app code', () {
@@ -51,6 +53,7 @@ void main() {
       'reasoning': 'Strong relevance',
       'classifiedAt': '2026-02-25T11:00:00+00:00',
       'swipeStatus': 'archived',
+      'note': 'Remember this',
     };
 
     final post = Post.fromJson(payload);
@@ -59,6 +62,7 @@ void main() {
     expect(post.platform, 'x');
     expect(post.authorName, 'John Doe');
     expect(post.swipeStatus, 'archived');
+    expect(post.note, 'Remember this');
   });
 
   test('Post.fromJson accepts null post_url values', () {
@@ -76,6 +80,7 @@ void main() {
       'reasoning': 'Still relevant',
       'classified_at': '2026-02-25T12:00:00+00:00',
       'swipe_status': 'pending',
+      'note': null,
     };
 
     final post = Post.fromJson(payload);

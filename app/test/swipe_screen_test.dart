@@ -7,7 +7,10 @@ import 'package:noise_cancel_app/services/api_service.dart';
 import 'package:noise_cancel_app/services/second_brain_service.dart';
 import 'package:noise_cancel_app/widgets/post_card.dart';
 
-Post _buildPost(int index) {
+Post _buildPost(
+  int index, {
+  String? note,
+}) {
   return Post(
     id: 'post-$index',
     classificationId: 'cls-$index',
@@ -22,6 +25,7 @@ Post _buildPost(int index) {
     reasoning: 'Relevant',
     classifiedAt: '2026-02-25T10:00:00+00:00',
     swipeStatus: 'pending',
+    note: note,
   );
 }
 
@@ -49,6 +53,7 @@ class FakeApiService extends ApiService {
   final List<int> requestedOffsets = <int>[];
   final List<String> archivedIds = <String>[];
   final List<String> deletedIds = <String>[];
+  final List<Map<String, String>> noteSaves = <Map<String, String>>[];
   final List<Map<String, Object?>> pageRequests = <Map<String, Object?>>[];
 
   @override
@@ -75,6 +80,16 @@ class FakeApiService extends ApiService {
   Future<void> deletePost(String classificationId) async {
     events.add('delete');
     deletedIds.add(classificationId);
+  }
+
+  @override
+  Future<String?> saveNote(String classificationId, String noteText) async {
+    events.add('save-note');
+    noteSaves.add(<String, String>{
+      'classificationId': classificationId,
+      'note': noteText,
+    });
+    return noteText;
   }
 
   @override
@@ -398,5 +413,47 @@ void main() {
 
     expect(find.byType(PostCard), findsWidgets);
     expect(find.text('All caught up!'), findsNothing);
+  });
+
+  testWidgets('long-press opens note sheet and saves note to server', (tester) async {
+    final events = <String>[];
+    final apiService = FakeApiService(
+      responsesByOffset: <int, List<Post>>{
+        0: <Post>[_buildPost(0)],
+      },
+      events: events,
+    );
+    final secondBrainService =
+        FakeSecondBrainService(enabled: false, events: events);
+
+    await _pumpScreen(
+      tester,
+      apiService: apiService,
+      secondBrainService: secondBrainService,
+    );
+
+    await tester.longPress(find.byType(PostCard).first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('note-input-field')), findsOneWidget);
+    expect(find.byKey(const Key('note-save-button')), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('note-input-field')),
+      'Investigate this in Friday review',
+    );
+    await tester.tap(find.byKey(const Key('note-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      apiService.noteSaves,
+      <Map<String, String>>[
+        <String, String>{
+          'classificationId': 'cls-0',
+          'note': 'Investigate this in Friday review',
+        }
+      ],
+    );
+    expect(find.text('📝'), findsOneWidget);
   });
 }

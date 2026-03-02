@@ -281,6 +281,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
   Widget _buildPostItem(BuildContext context, Post post) {
     final badge = _platformBadgeStyle(post.platform);
     final isExpanded = _expandedClassificationId == post.classificationId;
+    final hasNote = post.note != null && post.note!.trim().isNotEmpty;
 
     return InkWell(
       key: Key('archive-item-${post.classificationId}'),
@@ -353,6 +354,16 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
                   isExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodySmall,
             ),
+            if (hasNote) ...[
+              const SizedBox(height: 8),
+              Text(
+                '📝 ${post.note!}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.white70,
+                      fontStyle: FontStyle.italic,
+                    ),
+              ),
+            ],
             if (isExpanded) ...[
               const SizedBox(height: 10),
               const Divider(height: 1, color: Colors.white12),

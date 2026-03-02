@@ -161,6 +161,60 @@ class ApiService {
     );
   }
 
+  Future<String?> saveNote(String classificationId, String noteText) async {
+    final uri =
+        await _buildUri('/api/posts/${Uri.encodeComponent(classificationId)}/note');
+    final response = await _request(
+      (headers) => _client.post(
+        uri,
+        headers: <String, String>{
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode(<String, String>{
+          'note_text': noteText,
+        }),
+      ),
+      action: 'save note',
+    );
+    final payload = _decodeJsonMap(response.body, action: 'save note');
+    final note = payload['note'];
+    if (note == null) {
+      return null;
+    }
+    if (note is String) {
+      return note;
+    }
+    throw const ApiServiceException('Invalid note response payload');
+  }
+
+  Future<String?> fetchNote(String classificationId) async {
+    final uri =
+        await _buildUri('/api/posts/${Uri.encodeComponent(classificationId)}/note');
+    final response = await _request(
+      (headers) => _client.get(uri, headers: headers),
+      action: 'fetch note',
+    );
+    final payload = _decodeJsonMap(response.body, action: 'fetch note');
+    final note = payload['note'];
+    if (note == null) {
+      return null;
+    }
+    if (note is String) {
+      return note;
+    }
+    throw const ApiServiceException('Invalid note response payload');
+  }
+
+  Future<void> deleteNote(String classificationId) async {
+    final uri =
+        await _buildUri('/api/posts/${Uri.encodeComponent(classificationId)}/note');
+    await _request(
+      (headers) => _client.delete(uri, headers: headers),
+      action: 'delete note',
+    );
+  }
+
   Future<String> _resolveBaseUrl() async {
     if (_configuredBaseUrl != null) {
       return _configuredBaseUrl;

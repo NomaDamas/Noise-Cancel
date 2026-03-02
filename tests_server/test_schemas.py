@@ -6,6 +6,9 @@ from pydantic import BaseModel, ValidationError
 from server.schemas import (
     ArchiveResponse,
     DeleteResponse,
+    NoteDeleteResponse,
+    NoteResponse,
+    NoteUpsertRequest,
     PipelineRunRequest,
     PipelineRunResponse,
     PipelineStatusResponse,
@@ -29,6 +32,7 @@ def _sample_post_payload() -> dict[str, object]:
         "reasoning": "Matches whitelist keywords.",
         "classified_at": "2026-02-25T00:00:00+00:00",
         "swipe_status": "pending",
+        "note": None,
     }
 
 
@@ -38,6 +42,9 @@ def test_all_schema_classes_are_pydantic_models():
         PostListResponse,
         ArchiveResponse,
         DeleteResponse,
+        NoteUpsertRequest,
+        NoteResponse,
+        NoteDeleteResponse,
         PipelineRunRequest,
         PipelineRunResponse,
         PipelineStatusResponse,
@@ -60,6 +67,7 @@ def test_post_response_schema_contract():
         "reasoning",
         "classified_at",
         "swipe_status",
+        "note",
     }
     assert set(PostResponse.model_fields) == expected_fields
 
@@ -95,6 +103,20 @@ def test_archive_and_delete_response_schema_contract():
 
     assert archive.model_dump() == {"status": "archived", "classification_id": "cls-1"}
     assert delete.model_dump() == {"status": "deleted", "classification_id": "cls-2"}
+
+
+def test_note_schema_contract():
+    assert set(NoteUpsertRequest.model_fields) == {"note_text"}
+    assert set(NoteResponse.model_fields) == {"classification_id", "note"}
+    assert set(NoteDeleteResponse.model_fields) == {"status", "classification_id"}
+
+    upsert = NoteUpsertRequest(note_text="Track this")
+    response = NoteResponse(classification_id="cls-1", note="Track this")
+    delete = NoteDeleteResponse(status="deleted", classification_id="cls-1")
+
+    assert upsert.model_dump() == {"note_text": "Track this"}
+    assert response.model_dump() == {"classification_id": "cls-1", "note": "Track this"}
+    assert delete.model_dump() == {"status": "deleted", "classification_id": "cls-1"}
 
 
 def test_pipeline_run_request_defaults():

@@ -7,6 +7,7 @@ import 'package:noise_cancel_app/widgets/post_card.dart';
 Post _buildPost({
   String? postUrl = 'https://linkedin.com/posts/post-1',
   String platform = 'linkedin',
+  String? note,
 }) {
   return Post(
     id: 'post-1',
@@ -22,6 +23,7 @@ Post _buildPost({
     reasoning: 'Relevant to interests',
     classifiedAt: '2026-02-25T10:00:00+00:00',
     swipeStatus: 'pending',
+    note: note,
   );
 }
 
@@ -29,6 +31,7 @@ Future<void> _pumpPostCard(
   WidgetTester tester,
   Post post, {
   int horizontalOffsetPercentage = 0,
+  VoidCallback? onLongPress,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -38,6 +41,7 @@ Future<void> _pumpPostCard(
           child: PostCard(
             post: post,
             horizontalOffsetPercentage: horizontalOffsetPercentage,
+            onLongPress: onLongPress,
           ),
         ),
       ),
@@ -180,5 +184,39 @@ void main() {
     expect(find.text('더보기'), findsOneWidget);
     expect(find.text('LinkedIn에서 보기'), findsOneWidget);
     expect(find.byType(OutlinedButton), findsNWidgets(2));
+  });
+
+  testWidgets('shows note indicator when note exists', (
+    WidgetTester tester,
+  ) async {
+    await _pumpPostCard(tester, _buildPost(note: 'Remember this post'));
+
+    expect(find.text('📝'), findsOneWidget);
+  });
+
+  testWidgets('does not show note indicator when note is absent', (
+    WidgetTester tester,
+  ) async {
+    await _pumpPostCard(tester, _buildPost(note: null));
+
+    expect(find.text('📝'), findsNothing);
+  });
+
+  testWidgets('invokes onLongPress callback on long press', (
+    WidgetTester tester,
+  ) async {
+    var longPressed = false;
+    await _pumpPostCard(
+      tester,
+      _buildPost(),
+      onLongPress: () {
+        longPressed = true;
+      },
+    );
+
+    await tester.longPress(find.byType(PostCard));
+    await tester.pumpAndSettle();
+
+    expect(longPressed, isTrue);
   });
 }

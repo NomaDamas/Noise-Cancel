@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PostResponse(BaseModel):
@@ -17,6 +17,7 @@ class PostResponse(BaseModel):
     reasoning: str
     classified_at: str
     swipe_status: str
+    note: str | None = None
 
 
 class PostListResponse(BaseModel):
@@ -39,6 +40,20 @@ class ArchivePostResponse(ArchiveResponse):
 
 
 class DeleteResponse(BaseModel):
+    status: str
+    classification_id: str
+
+
+class NoteUpsertRequest(BaseModel):
+    note_text: str = Field(min_length=1)
+
+
+class NoteResponse(BaseModel):
+    classification_id: str
+    note: str | None
+
+
+class NoteDeleteResponse(BaseModel):
     status: str
     classification_id: str
 

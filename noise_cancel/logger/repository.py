@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from datetime import datetime, timezone
 
 from noise_cancel.models import Classification, Post, RunLog
@@ -193,9 +194,11 @@ def get_posts_for_feed(
                  c.confidence,
                  c.reasoning,
                  c.classified_at,
-                 c.swipe_status
+                 c.swipe_status,
+                 n.note_text AS note
              FROM classifications c
-             INNER JOIN posts p ON p.id = c.post_id"""
+             INNER JOIN posts p ON p.id = c.post_id
+             LEFT JOIN notes n ON n.classification_id = c.id"""
     where_clauses = ["c.category = ?", "c.swipe_status = ?"]
     params: list[object] = [category, swipe_status]
 
@@ -233,9 +236,11 @@ def get_post_for_feed_by_classification_id(
                c.confidence,
                c.reasoning,
                c.classified_at,
-               c.swipe_status
+               c.swipe_status,
+               n.note_text AS note
            FROM classifications c
            INNER JOIN posts p ON p.id = c.post_id
+           LEFT JOIN notes n ON n.classification_id = c.id
            WHERE c.id = ?""",
         (classification_id,),
     ).fetchone()
@@ -304,5 +309,47 @@ def update_swipe_status(conn: sqlite3.Connection, classification_id: str, status
     conn.execute(
         "UPDATE classifications SET swipe_status = ?, swiped_at = ? WHERE id = ?",
         (status, now, classification_id),
+    )
+    conn.commit()
+
+
+def get_note_by_classification_id(
+    conn: sqlite3.Connection,
+    classification_id: str,
+) -> dict | None:
+    row = conn.execute(
+        """SELECT id, classification_id, note_text, created_at, updated_at
+           FROM notes
+           WHERE classification_id = ?""",
+        (classification_id,),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def upsert_note(conn: sqlite3.Connection, classification_id: str, note_text: str) -> dict:
+    now = datetime.now(tz=timezone.utc).isoformat()
+    existing = get_note_by_classification_id(conn, classification_id)
+    note_id = existing["id"] if existing else uuid.uuid4().hex
+    created_at = existing["created_at"] if existing else now
+    conn.execute(
+        """INSERT INTO notes (id, classification_id, note_text, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(classification_id) DO UPDATE SET
+               note_text = excluded.note_text,
+               updated_at = excluded.updated_at""",
+        (note_id, classification_id, note_text, created_at, now),
+    )
+    conn.commit()
+    note = get_note_by_classification_id(conn, classification_id)
+    if note is None:
+        msg = f"Failed to save note for classification_id={classification_id}"
+        raise RuntimeError(msg)
+    return note
+
+
+def delete_note_by_classification_id(conn: sqlite3.Connection, classification_id: str) -> None:
+    conn.execute(
+        "DELETE FROM notes WHERE classification_id = ?",
+        (classification_id,),
     )
     conn.commit()

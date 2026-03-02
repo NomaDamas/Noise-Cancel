@@ -21,7 +21,9 @@ from noise_cancel.logger.metrics import (
 )
 from noise_cancel.logger.repository import (
     count_posts_for_feed,
+    delete_note_by_classification_id,
     get_classifications,
+    get_note_by_classification_id,
     get_posts,
     get_posts_for_feed,
     get_run_logs,
@@ -33,6 +35,7 @@ from noise_cancel.logger.repository import (
     mark_delivered,
     update_run_log,
     update_swipe_status,
+    upsert_note,
 )
 from noise_cancel.models import Classification, Post, RunLog
 
@@ -261,12 +264,14 @@ class TestFeedQueriesAndSwipeStatus:
             "reasoning",
             "classified_at",
             "swipe_status",
+            "note",
         }
         assert set(rows[0]) == expected_keys
         assert rows[0]["id"] == "post-2"
         assert rows[0]["platform"] == "x"
         assert rows[0]["summary"] == "Summary 2"
         assert rows[0]["swipe_status"] == "pending"
+        assert rows[0]["note"] is None
 
         paged = get_posts_for_feed(
             db_connection,
@@ -306,6 +311,26 @@ class TestFeedQueriesAndSwipeStatus:
         )
         assert [row["classification_id"] for row in rows] == ["cls-1"]
         assert {row["platform"] for row in rows} == {"linkedin"}
+
+    def test_get_posts_for_feed_includes_note_text_when_present(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        self._seed_feed_data(db_connection)
+        upsert_note(db_connection, "cls-1", "Track this topic for weekly sync")
+
+        rows = get_posts_for_feed(
+            db_connection,
+            category="Read",
+            swipe_status="pending",
+            platform="linkedin",
+            limit=20,
+            offset=0,
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["classification_id"] == "cls-1"
+        assert rows[0]["note"] == "Track this topic for weekly sync"
 
     def test_update_swipe_status_sets_swiped_at_timestamp(
         self,
@@ -350,6 +375,50 @@ class TestFeedQueriesAndSwipeStatus:
         assert row is not None
         assert row["swipe_status"] == "pending"
         assert row["swiped_at"] is None
+
+
+class TestNotes:
+    def test_upsert_note_inserts_new_note(self, db_connection: sqlite3.Connection) -> None:
+        _seed_basic(db_connection)
+
+        upsert_note(db_connection, "cls-1", "Useful idea for next sprint")
+        note = get_note_by_classification_id(db_connection, "cls-1")
+
+        assert note is not None
+        assert note["classification_id"] == "cls-1"
+        assert note["note_text"] == "Useful idea for next sprint"
+        assert note["created_at"] is not None
+        assert note["updated_at"] is not None
+
+    def test_upsert_note_updates_existing_note_without_changing_created_at(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        _seed_basic(db_connection)
+
+        upsert_note(db_connection, "cls-1", "first")
+        first = get_note_by_classification_id(db_connection, "cls-1")
+        assert first is not None
+
+        upsert_note(db_connection, "cls-1", "updated")
+        second = get_note_by_classification_id(db_connection, "cls-1")
+
+        assert second is not None
+        assert second["note_text"] == "updated"
+        assert second["created_at"] == first["created_at"]
+        assert second["updated_at"] >= first["updated_at"]
+
+    def test_delete_note_by_classification_id_removes_note(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        _seed_basic(db_connection)
+        upsert_note(db_connection, "cls-1", "delete me")
+
+        delete_note_by_classification_id(db_connection, "cls-1")
+        note = get_note_by_classification_id(db_connection, "cls-1")
+
+        assert note is None
 
 
 # ---------------------------------------------------------------------------

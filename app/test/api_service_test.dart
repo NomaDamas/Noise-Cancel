@@ -209,6 +209,78 @@ void main() {
         'http://localhost:8012/api/posts/cls-1/delete');
   });
 
+  test('saveNote posts note payload and returns saved note text', () async {
+    Uri? requestedUri;
+    String? requestBody;
+    final client = MockClient((request) async {
+      requestedUri = request.url;
+      requestBody = request.body;
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'classification_id': 'cls-1',
+          'note': 'Track this for weekly review',
+        }),
+        200,
+      );
+    });
+
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
+    final saved = await service.saveNote('cls-1', 'Track this for weekly review');
+
+    expect(requestedUri, isNotNull);
+    expect(requestedUri.toString(),
+        'http://localhost:8012/api/posts/cls-1/note');
+    expect(requestBody, '{"note_text":"Track this for weekly review"}');
+    expect(saved, 'Track this for weekly review');
+  });
+
+  test('fetchNote returns null when note is not set', () async {
+    Uri? requestedUri;
+    final client = MockClient((request) async {
+      requestedUri = request.url;
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'classification_id': 'cls-1',
+          'note': null,
+        }),
+        200,
+      );
+    });
+
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
+    final note = await service.fetchNote('cls-1');
+
+    expect(requestedUri, isNotNull);
+    expect(requestedUri.toString(),
+        'http://localhost:8012/api/posts/cls-1/note');
+    expect(note, isNull);
+  });
+
+  test('deleteNote calls note delete endpoint and completes on success',
+      () async {
+    Uri? requestedUri;
+    final client = MockClient((request) async {
+      requestedUri = request.url;
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'status': 'deleted',
+          'classification_id': 'cls-1',
+        }),
+        200,
+      );
+    });
+
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
+    await service.deleteNote('cls-1');
+
+    expect(requestedUri, isNotNull);
+    expect(requestedUri.toString(),
+        'http://localhost:8012/api/posts/cls-1/note');
+  });
+
   test('fetchPosts throws ApiServiceException on non-200 response', () async {
     final client = MockClient((_) async => http.Response('server error', 500));
     final service =
@@ -239,6 +311,17 @@ void main() {
 
     await expectLater(
       service.deletePost('cls-1'),
+      throwsA(isA<ApiServiceException>()),
+    );
+  });
+
+  test('saveNote throws ApiServiceException on http errors', () async {
+    final client = MockClient((_) async => http.Response('not found', 404));
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
+
+    await expectLater(
+      service.saveNote('missing', 'note'),
       throwsA(isA<ApiServiceException>()),
     );
   });

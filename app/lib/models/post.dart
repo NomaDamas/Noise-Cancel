@@ -13,6 +13,7 @@ class Post {
     required this.reasoning,
     required this.classifiedAt,
     required this.swipeStatus,
+    this.note,
   });
 
   final String id;
@@ -28,6 +29,7 @@ class Post {
   final String reasoning;
   final String classifiedAt;
   final String swipeStatus;
+  final String? note;
 
   factory Post.fromJson(Map<String, dynamic> json) {
     final confidenceValue = json['confidence'];
@@ -52,6 +54,7 @@ class Post {
           _readString(json, 'classifiedAt', fallbackKey: 'classified_at'),
       swipeStatus:
           _readString(json, 'swipeStatus', fallbackKey: 'swipe_status'),
+      note: _readOptionalString(json, 'note'),
     );
   }
 

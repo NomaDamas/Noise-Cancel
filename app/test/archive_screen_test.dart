@@ -10,6 +10,7 @@ Post _buildPost(
   int index, {
   String platform = 'linkedin',
   String? postText,
+  String? note,
 }) {
   return Post(
     id: 'post-$index',
@@ -25,6 +26,7 @@ Post _buildPost(
     reasoning: 'Relevant to interests',
     classifiedAt: '2026-02-25T10:00:00+00:00',
     swipeStatus: 'archived',
+    note: note,
   );
 }
 
@@ -233,5 +235,34 @@ void main() {
       apiService.requests.map((request) => request['offset']),
       contains(20),
     );
+  });
+
+  testWidgets('shows note text below archived post content when present',
+      (tester) async {
+    final apiService = FakeArchiveApiService(
+      onFetch: ({
+        required limit,
+        required offset,
+        required category,
+        required swipeStatus,
+        String? platform,
+        String? query,
+      }) {
+        return PostPage(
+          posts: <Post>[
+            _buildPost(
+              0,
+              note: 'Remember to share this with the team',
+            ),
+          ],
+          total: 1,
+          hasMore: false,
+        );
+      },
+    );
+
+    await _pumpArchiveScreen(tester, apiService: apiService);
+
+    expect(find.text('📝 Remember to share this with the team'), findsOneWidget);
   });
 }

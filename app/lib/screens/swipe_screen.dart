@@ -187,6 +187,119 @@ class _SwipeScreenState extends State<SwipeScreen> {
     return _posts.length - currentIndex;
   }
 
+  void _setPostNoteAtIndex(int index, String? note) {
+    if (index < 0 || index >= _posts.length) {
+      return;
+    }
+    final current = _posts[index];
+    _posts[index] = Post(
+      id: current.id,
+      classificationId: current.classificationId,
+      platform: current.platform,
+      authorName: current.authorName,
+      authorUrl: current.authorUrl,
+      postUrl: current.postUrl,
+      postText: current.postText,
+      summary: current.summary,
+      category: current.category,
+      confidence: current.confidence,
+      reasoning: current.reasoning,
+      classifiedAt: current.classifiedAt,
+      swipeStatus: current.swipeStatus,
+      note: note,
+    );
+  }
+
+  Future<void> _openNoteEditor(int index) async {
+    if (index < 0 || index >= _posts.length) {
+      return;
+    }
+
+    final post = _posts[index];
+    final controller = TextEditingController(text: post.note ?? '');
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+        return Padding(
+          padding: EdgeInsets.fromLTRB(16, 16, 16, bottomInset + 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '메모 추가',
+                style: Theme.of(sheetContext).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                key: const Key('note-input-field'),
+                controller: controller,
+                maxLines: 4,
+                minLines: 3,
+                decoration: const InputDecoration(
+                  hintText: '이 게시물에 남길 메모를 입력하세요',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  key: const Key('note-save-button'),
+                  onPressed: () async {
+                    final noteText = controller.text.trim();
+                    if (noteText.isEmpty) {
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        _errorMessage = '메모를 입력해 주세요.';
+                      });
+                      return;
+                    }
+
+                    try {
+                      final savedNote =
+                          await _apiService.saveNote(post.classificationId, noteText);
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        _setPostNoteAtIndex(index, savedNote ?? noteText);
+                        _errorMessage = null;
+                      });
+                      if (!sheetContext.mounted) {
+                        return;
+                      }
+                      if (Navigator.of(sheetContext).canPop()) {
+                        Navigator.of(sheetContext).pop();
+                      }
+                    } catch (_) {
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        _errorMessage = '메모를 저장하지 못했습니다.';
+                      });
+                    }
+                  },
+                  child: const Text('Save'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _openSettings() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(builder: _settingsScreenBuilder),
@@ -348,6 +461,7 @@ class _SwipeScreenState extends State<SwipeScreen> {
                                     post: _posts[index],
                                     horizontalOffsetPercentage:
                                         horizontalThresholdPercentage,
+                                    onLongPress: () => _openNoteEditor(index),
                                   );
                                 },
                               );
