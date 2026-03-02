@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_card_swiper/flutter_card_swiper.dart';
 import 'package:noise_cancel_app/models/post.dart';
+import 'package:noise_cancel_app/screens/archive_screen.dart';
 import 'package:noise_cancel_app/screens/settings_screen.dart';
 import 'package:noise_cancel_app/services/api_service.dart';
 import 'package:noise_cancel_app/services/second_brain_service.dart';
@@ -16,12 +17,14 @@ class SwipeScreen extends StatefulWidget {
     this.secondBrainService,
     this.swiperController,
     this.settingsScreenBuilder,
+    this.archiveScreenBuilder,
   });
 
   final ApiService? apiService;
   final SecondBrainService? secondBrainService;
   final CardSwiperController? swiperController;
   final WidgetBuilder? settingsScreenBuilder;
+  final WidgetBuilder? archiveScreenBuilder;
 
   @override
   State<SwipeScreen> createState() => _SwipeScreenState();
@@ -35,10 +38,12 @@ class _SwipeScreenState extends State<SwipeScreen> {
   late final SecondBrainService _secondBrainService;
   late final CardSwiperController _swiperController;
   late final WidgetBuilder _settingsScreenBuilder;
+  late final WidgetBuilder _archiveScreenBuilder;
   late final bool _ownsController;
 
   final List<Post> _posts = <Post>[];
   int _offset = 0;
+  int _archivedCount = 0;
   int? _currentIndex;
   bool _isLoading = false;
   bool _hasMore = true;
@@ -51,8 +56,12 @@ class _SwipeScreenState extends State<SwipeScreen> {
     _secondBrainService = widget.secondBrainService ?? SecondBrainService();
     _ownsController = widget.swiperController == null;
     _swiperController = widget.swiperController ?? CardSwiperController();
-    _settingsScreenBuilder = widget.settingsScreenBuilder ?? (_) => const SettingsScreen();
+    _settingsScreenBuilder =
+        widget.settingsScreenBuilder ?? (_) => const SettingsScreen();
+    _archiveScreenBuilder =
+        widget.archiveScreenBuilder ?? (_) => const ArchiveScreen();
     unawaited(_fetchNextBatch());
+    unawaited(_refreshArchiveCount());
   }
 
   @override
@@ -117,6 +126,7 @@ class _SwipeScreenState extends State<SwipeScreen> {
       _isLoading = false;
     });
     await _fetchNextBatch();
+    await _refreshArchiveCount();
   }
 
   Future<bool> _onSwipe(
@@ -132,7 +142,8 @@ class _SwipeScreenState extends State<SwipeScreen> {
 
     try {
       if (direction == CardSwiperDirection.left) {
-        final archivedPostData = await _apiService.archivePost(post.classificationId);
+        final archivedPostData =
+            await _apiService.archivePost(post.classificationId);
         unawaited(_secondBrainService.forward(archivedPostData));
       } else if (direction == CardSwiperDirection.right) {
         await _apiService.deletePost(post.classificationId);
@@ -157,6 +168,10 @@ class _SwipeScreenState extends State<SwipeScreen> {
       _errorMessage = null;
     });
 
+    if (direction == CardSwiperDirection.left) {
+      unawaited(_refreshArchiveCount());
+    }
+
     final remainingCards = _remainingCards(currentIndex);
     if (remainingCards < _prefetchThreshold) {
       unawaited(_fetchNextBatch());
@@ -178,6 +193,70 @@ class _SwipeScreenState extends State<SwipeScreen> {
     );
   }
 
+  Future<void> _openArchive() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(builder: _archiveScreenBuilder),
+    );
+    if (!mounted) {
+      return;
+    }
+    await _refreshArchiveCount();
+  }
+
+  Future<void> _refreshArchiveCount() async {
+    try {
+      final page = await _apiService.fetchPostPage(
+        limit: 1,
+        offset: 0,
+        swipeStatus: 'archived',
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _archivedCount = page.total;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _archivedCount = 0;
+      });
+    }
+  }
+
+  Widget _buildArchiveIcon() {
+    final countLabel = _archivedCount > 99 ? '99+' : '$_archivedCount';
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        const Icon(Icons.archive_outlined),
+        if (_archivedCount > 0)
+          Positioned(
+            right: -8,
+            top: -8,
+            child: Container(
+              key: const Key('archive-count-badge'),
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: Colors.redAccent,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                countLabel,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final remainingCards = _remainingCards(_currentIndex);
@@ -187,6 +266,12 @@ class _SwipeScreenState extends State<SwipeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('NoiseCancel'),
+        leading: IconButton(
+          key: const Key('open-archive-button'),
+          onPressed: _openArchive,
+          icon: _buildArchiveIcon(),
+          tooltip: '저장고',
+        ),
         actions: [
           IconButton(
             onPressed: _openSettings,
@@ -223,14 +308,17 @@ class _SwipeScreenState extends State<SwipeScreen> {
                           child: Builder(
                             builder: (context) {
                               if (showLoadingState) {
-                                return const Center(child: CircularProgressIndicator());
+                                return const Center(
+                                    child: CircularProgressIndicator());
                               }
 
                               if (showEmptyState) {
                                 return const Center(
                                   child: Text(
                                     'All caught up!',
-                                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                                    style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600),
                                   ),
                                 );
                               }
@@ -244,7 +332,8 @@ class _SwipeScreenState extends State<SwipeScreen> {
                                 cardsCount: _posts.length,
                                 numberOfCardsDisplayed: min(3, _posts.length),
                                 isLoop: false,
-                                allowedSwipeDirection: const AllowedSwipeDirection.only(
+                                allowedSwipeDirection:
+                                    const AllowedSwipeDirection.only(
                                   left: true,
                                   right: true,
                                 ),

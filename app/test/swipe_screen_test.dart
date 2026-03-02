@@ -30,6 +30,7 @@ class FakeApiService extends ApiService {
     required this.responsesByOffset,
     required this.events,
     Map<String, dynamic>? archiveResponse,
+    this.archivedCount = 0,
   })  : _archiveResponse = archiveResponse ??
             <String, dynamic>{
               'classification_id': 'cls-0',
@@ -44,14 +45,20 @@ class FakeApiService extends ApiService {
   final Map<int, List<Post>> responsesByOffset;
   final List<String> events;
   final Map<String, dynamic> _archiveResponse;
+  final int archivedCount;
   final List<int> requestedOffsets = <int>[];
   final List<String> archivedIds = <String>[];
   final List<String> deletedIds = <String>[];
+  final List<Map<String, Object?>> pageRequests = <Map<String, Object?>>[];
 
   @override
   Future<List<Post>> fetchPosts({
     int limit = 20,
     int offset = 0,
+    String category = 'Read',
+    String swipeStatus = 'pending',
+    String? platform,
+    String? query,
   }) async {
     requestedOffsets.add(offset);
     return List<Post>.of(responsesByOffset[offset] ?? <Post>[]);
@@ -68,6 +75,30 @@ class FakeApiService extends ApiService {
   Future<void> deletePost(String classificationId) async {
     events.add('delete');
     deletedIds.add(classificationId);
+  }
+
+  @override
+  Future<PostPage> fetchPostPage({
+    int limit = 20,
+    int offset = 0,
+    String category = 'Read',
+    String swipeStatus = 'pending',
+    String? platform,
+    String? query,
+  }) async {
+    pageRequests.add(<String, Object?>{
+      'limit': limit,
+      'offset': offset,
+      'category': category,
+      'swipeStatus': swipeStatus,
+      'platform': platform,
+      'query': query,
+    });
+    return PostPage(
+      posts: <Post>[],
+      total: archivedCount,
+      hasMore: false,
+    );
   }
 }
 
@@ -97,6 +128,7 @@ Future<void> _pumpScreen(
   required FakeSecondBrainService secondBrainService,
   CardSwiperController? controller,
   WidgetBuilder? settingsScreenBuilder,
+  WidgetBuilder? archiveScreenBuilder,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -106,6 +138,7 @@ Future<void> _pumpScreen(
         secondBrainService: secondBrainService,
         swiperController: controller,
         settingsScreenBuilder: settingsScreenBuilder,
+        archiveScreenBuilder: archiveScreenBuilder,
       ),
     ),
   );
@@ -257,7 +290,7 @@ void main() {
   });
 
   testWidgets(
-      'app bar shows title and settings icon navigates to settings screen',
+      'app bar shows title, archive button with count, and settings navigation',
       (tester) async {
     final events = <String>[];
     final apiService = FakeApiService(
@@ -265,6 +298,7 @@ void main() {
         0: <Post>[_buildPost(0)],
       },
       events: events,
+      archivedCount: 7,
     );
     final secondBrainService =
         FakeSecondBrainService(enabled: false, events: events);
@@ -276,10 +310,23 @@ void main() {
       settingsScreenBuilder: (_) => const Scaffold(
         body: Center(child: Text('Mock Settings Screen')),
       ),
+      archiveScreenBuilder: (_) => const Scaffold(
+        body: Center(child: Text('Mock Archive Screen')),
+      ),
     );
 
     expect(find.text('NoiseCancel'), findsOneWidget);
+    expect(find.byKey(const Key('open-archive-button')), findsOneWidget);
+    expect(find.byIcon(Icons.archive_outlined), findsOneWidget);
+    expect(find.text('7'), findsOneWidget);
     expect(find.byIcon(Icons.settings), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('open-archive-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('Mock Archive Screen'), findsOneWidget);
+
+    Navigator.of(tester.element(find.text('Mock Archive Screen'))).pop();
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();

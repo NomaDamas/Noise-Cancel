@@ -22,15 +22,18 @@ def get_posts(
     category: str = Query(default="Read"),
     swipe_status: str = Query(default="pending"),
     platform: str | None = Query(default=None),
+    q: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1),
     offset: int = Query(default=0, ge=0),
 ) -> PostListResponse:
     normalized_platform = platform.strip().lower() if platform and platform.strip() else None
+    normalized_query = q.strip() if q and q.strip() else None
     rows = get_posts_for_feed(
         conn=db,
         category=category,
         swipe_status=swipe_status,
         platform=normalized_platform,
+        query=normalized_query,
         limit=limit,
         offset=offset,
     )
@@ -39,6 +42,7 @@ def get_posts(
         category=category,
         swipe_status=swipe_status,
         platform=normalized_platform,
+        query=normalized_query,
     )
     posts = [PostResponse.model_validate(row) for row in rows]
     has_more = total > (offset + limit)

@@ -176,55 +176,42 @@ def get_posts_for_feed(
     category: str = "Read",
     swipe_status: str = "pending",
     platform: str | None = None,
+    query: str | None = None,
     limit: int = 20,
     offset: int = 0,
 ) -> list[dict]:
-    if platform is None:
-        rows = conn.execute(
-            """SELECT
-                   p.id AS id,
-                   c.id AS classification_id,
-                   p.platform,
-                   p.author_name,
-                   p.author_url,
-                   p.post_url,
-                   p.post_text,
-                   c.summary,
-                   c.category,
-                   c.confidence,
-                   c.reasoning,
-                   c.classified_at,
-                   c.swipe_status
-               FROM classifications c
-               INNER JOIN posts p ON p.id = c.post_id
-               WHERE c.category = ? AND c.swipe_status = ?
-               ORDER BY c.classified_at DESC
-               LIMIT ? OFFSET ?""",
-            (category, swipe_status, limit, offset),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """SELECT
-                   p.id AS id,
-                   c.id AS classification_id,
-                   p.platform,
-                   p.author_name,
-                   p.author_url,
-                   p.post_url,
-                   p.post_text,
-                   c.summary,
-                   c.category,
-                   c.confidence,
-                   c.reasoning,
-                   c.classified_at,
-                   c.swipe_status
-               FROM classifications c
-               INNER JOIN posts p ON p.id = c.post_id
-               WHERE c.category = ? AND c.swipe_status = ? AND p.platform = ?
-               ORDER BY c.classified_at DESC
-               LIMIT ? OFFSET ?""",
-            (category, swipe_status, platform, limit, offset),
-        ).fetchall()
+    sql = """SELECT
+                 p.id AS id,
+                 c.id AS classification_id,
+                 p.platform,
+                 p.author_name,
+                 p.author_url,
+                 p.post_url,
+                 p.post_text,
+                 c.summary,
+                 c.category,
+                 c.confidence,
+                 c.reasoning,
+                 c.classified_at,
+                 c.swipe_status
+             FROM classifications c
+             INNER JOIN posts p ON p.id = c.post_id"""
+    where_clauses = ["c.category = ?", "c.swipe_status = ?"]
+    params: list[object] = [category, swipe_status]
+
+    if platform is not None:
+        where_clauses.append("p.platform = ?")
+        params.append(platform)
+
+    if query is not None:
+        where_clauses.append("p.post_text LIKE ?")
+        params.append(f"%{query}%")
+
+    sql += " WHERE " + " AND ".join(where_clauses)
+    sql += " ORDER BY c.classified_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+
+    rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -260,23 +247,24 @@ def count_posts_for_feed(
     category: str = "Read",
     swipe_status: str = "pending",
     platform: str | None = None,
+    query: str | None = None,
 ) -> int:
-    if platform is None:
-        row = conn.execute(
-            """SELECT COUNT(*) AS total
-               FROM classifications c
-               INNER JOIN posts p ON p.id = c.post_id
-               WHERE c.category = ? AND c.swipe_status = ?""",
-            (category, swipe_status),
-        ).fetchone()
-    else:
-        row = conn.execute(
-            """SELECT COUNT(*) AS total
-               FROM classifications c
-               INNER JOIN posts p ON p.id = c.post_id
-               WHERE c.category = ? AND c.swipe_status = ? AND p.platform = ?""",
-            (category, swipe_status, platform),
-        ).fetchone()
+    sql = """SELECT COUNT(*) AS total
+             FROM classifications c
+             INNER JOIN posts p ON p.id = c.post_id"""
+    where_clauses = ["c.category = ?", "c.swipe_status = ?"]
+    params: list[object] = [category, swipe_status]
+
+    if platform is not None:
+        where_clauses.append("p.platform = ?")
+        params.append(platform)
+
+    if query is not None:
+        where_clauses.append("p.post_text LIKE ?")
+        params.append(f"%{query}%")
+
+    sql += " WHERE " + " AND ".join(where_clauses)
+    row = conn.execute(sql, params).fetchone()
     return int(row["total"]) if row else 0
 
 

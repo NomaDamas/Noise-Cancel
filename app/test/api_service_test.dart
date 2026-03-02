@@ -83,6 +83,81 @@ void main() {
         'http://configured:8012/api/posts?limit=20&offset=0');
   });
 
+  test('fetchPosts forwards archive filters and keyword query params',
+      () async {
+    Uri? requestedUri;
+    final client = MockClient((request) async {
+      requestedUri = request.url;
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'posts': <Map<String, dynamic>>[],
+          'total': 0,
+          'has_more': false,
+        }),
+        200,
+      );
+    });
+
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
+    await service.fetchPosts(
+      limit: 20,
+      offset: 0,
+      swipeStatus: 'archived',
+      platform: 'reddit',
+      query: 'ai',
+    );
+
+    expect(requestedUri, isNotNull);
+    expect(
+      requestedUri.toString(),
+      'http://localhost:8012/api/posts?limit=20&offset=0&swipe_status=archived&platform=reddit&q=ai',
+    );
+  });
+
+  test('fetchPostPage returns list metadata for pagination and badges',
+      () async {
+    final client = MockClient((_) async {
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'posts': [
+            <String, dynamic>{
+              'id': 'post-1',
+              'classification_id': 'cls-1',
+              'platform': 'linkedin',
+              'author_name': 'Jane Doe',
+              'author_url': 'https://linkedin.com/in/jane',
+              'post_url': 'https://linkedin.com/posts/post-1',
+              'post_text': 'A useful post',
+              'summary': 'A short summary',
+              'category': 'Read',
+              'confidence': 0.95,
+              'reasoning': 'Matches user interests',
+              'classified_at': '2026-02-25T10:00:00+00:00',
+              'swipe_status': 'archived',
+            },
+          ],
+          'total': 37,
+          'has_more': true,
+        }),
+        200,
+      );
+    });
+
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
+    final page = await service.fetchPostPage(
+      limit: 20,
+      offset: 0,
+      swipeStatus: 'archived',
+    );
+
+    expect(page.posts, hasLength(1));
+    expect(page.posts.first.classificationId, 'cls-1');
+    expect(page.total, 37);
+    expect(page.hasMore, isTrue);
+  });
+
   test('archivePost returns the full post data payload', () async {
     Uri? requestedUri;
     final client = MockClient((request) async {

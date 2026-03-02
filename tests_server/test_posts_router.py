@@ -202,6 +202,42 @@ def test_get_posts_filters_by_platform(tmp_path: Path, monkeypatch) -> None:
         assert {post["platform"] for post in payload["posts"]} == {"linkedin"}
 
 
+def test_get_posts_supports_keyword_search_with_optional_platform_filter(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, conn = _build_client(tmp_path, monkeypatch)
+    with client:
+        _seed_feed_data(conn)
+        update_swipe_status(conn, "cls-2", "archived")
+
+        keyword_only = client.get(
+            "/api/posts",
+            params={"swipe_status": "archived", "q": "post-2"},
+        )
+        assert keyword_only.status_code == 200
+        keyword_payload = keyword_only.json()
+        assert keyword_payload["total"] == 1
+        assert keyword_payload["has_more"] is False
+        assert [post["classification_id"] for post in keyword_payload["posts"]] == ["cls-2"]
+        assert keyword_payload["posts"][0]["post_text"] == "Post text post-2"
+
+        with_platform = client.get(
+            "/api/posts",
+            params={
+                "swipe_status": "archived",
+                "q": "Post text",
+                "platform": "threads",
+            },
+        )
+        assert with_platform.status_code == 200
+        platform_payload = with_platform.json()
+        assert platform_payload["total"] == 1
+        assert platform_payload["has_more"] is False
+        assert [post["classification_id"] for post in platform_payload["posts"]] == ["cls-4"]
+        assert platform_payload["posts"][0]["platform"] == "threads"
+
+
 def test_get_posts_pagination_computes_has_more(tmp_path: Path, monkeypatch) -> None:
     client, conn = _build_client(tmp_path, monkeypatch)
     with client:
