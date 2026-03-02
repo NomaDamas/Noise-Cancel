@@ -20,35 +20,58 @@ _THREADS_SESSION_FILE = "threads_session.enc"
 _THREADS_SESSION_KEY_FILE = "threads_session.key"
 
 # JavaScript to extract post data from the Threads home feed DOM.
+# Threads (as of 2026-03) uses [data-pressable-container="true"] for post
+# containers and a[href*="/@"] links for author/post identification.
+# There are no role="article" or <article> elements in the current DOM.
 _JS_EXTRACT_POSTS = """
 () => {
     const posts = [];
-    const threadPosts = document.querySelectorAll('div[role="article"]');
-    for (const post of threadPosts) {
-        const authorEl =
-            post.querySelector('a[href^="/@"] span') ||
-            post.querySelector('header a[href^="/@"]') ||
-            post.querySelector('h2 span');
-        const textEl =
-            post.querySelector('div[data-pressable-container="true"] span') ||
-            post.querySelector('[data-testid="thread-post-text"]') ||
-            post.querySelector('span[dir="auto"]');
-        const timeEl = post.querySelector('time');
-        const postLinkEl =
-            post.querySelector('a[href*="/post/"]') ||
-            (timeEl && timeEl.parentElement && timeEl.parentElement.tagName === 'A' ? timeEl.parentElement : null);
+    const seen = new Set();
 
-        const authorName = authorEl ? authorEl.innerText.trim() : '';
-        const postText = textEl ? textEl.innerText.trim() : '';
-        const postUrl = postLinkEl ? postLinkEl.href : '';
+    // Find all post links (/@username/post/ID pattern)
+    const postLinks = document.querySelectorAll('a[href*="/post/"]');
+    for (const link of postLinks) {
+        const href = link.href || '';
+        const match = href.match(/\\/@([^/]+)\\/post\\/([^/?#]+)/);
+        if (!match) continue;
+
+        const authorHandle = match[1];
+        const postId = match[2];
+        if (seen.has(postId)) continue;
+        seen.add(postId);
+
+        // Walk up to find the pressable container (post boundary)
+        let container = link;
+        for (let i = 0; i < 15; i++) {
+            if (!container.parentElement) break;
+            container = container.parentElement;
+            if (container.getAttribute('data-pressable-container') === 'true') break;
+        }
+
+        // Extract author display name from /@username link's text
+        const authorLinkEl = container.querySelector('a[href*="/@' + authorHandle + '"] span');
+        const authorName = authorLinkEl ? authorLinkEl.innerText.trim() : authorHandle;
+
+        // Extract post text: collect all span[dir="auto"] within container
+        const textSpans = container.querySelectorAll('span[dir="auto"]');
+        let postText = '';
+        for (const span of textSpans) {
+            const t = span.innerText.trim();
+            // Skip if it looks like just the author name or a UI label
+            if (t === authorName || t.length < 2) continue;
+            if (postText) postText += '\\n';
+            postText += t;
+        }
+
+        // Extract timestamp
+        const timeEl = container.querySelector('time');
         const postTimestamp = timeEl ? timeEl.getAttribute('datetime') : null;
-        const dataPostId = post.getAttribute('data-post-id') || '';
 
         posts.push({
-            id: dataPostId,
+            id: postId,
             author_name: authorName,
             post_text: postText,
-            post_url: postUrl || null,
+            post_url: href,
             post_timestamp: postTimestamp,
         });
     }
