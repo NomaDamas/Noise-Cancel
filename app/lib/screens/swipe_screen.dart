@@ -47,6 +47,7 @@ class _SwipeScreenState extends State<SwipeScreen> {
   int? _currentIndex;
   bool _isLoading = false;
   bool _hasMore = true;
+  bool _paginationError = false;
   String? _errorMessage;
 
   @override
@@ -79,6 +80,7 @@ class _SwipeScreenState extends State<SwipeScreen> {
 
     setState(() {
       _isLoading = true;
+      _paginationError = false;
     });
 
     try {
@@ -103,10 +105,26 @@ class _SwipeScreenState extends State<SwipeScreen> {
       if (!mounted) {
         return;
       }
-      setState(() {
-        _hasMore = false;
-        _errorMessage = 'Could not load posts.';
-      });
+      if (_posts.isEmpty) {
+        setState(() {
+          _errorMessage = 'Could not load posts.';
+        });
+      } else {
+        setState(() {
+          _paginationError = true;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('포스트를 불러올 수 없습니다'),
+              action: SnackBarAction(
+                label: '다시 시도',
+                onPressed: _fetchNextBatch,
+              ),
+            ),
+          );
+        }
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -122,6 +140,7 @@ class _SwipeScreenState extends State<SwipeScreen> {
       _offset = 0;
       _currentIndex = null;
       _hasMore = true;
+      _paginationError = false;
       _errorMessage = null;
       _isLoading = false;
     });
@@ -218,86 +237,90 @@ class _SwipeScreenState extends State<SwipeScreen> {
     final post = _posts[index];
     final controller = TextEditingController(text: post.note ?? '');
 
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: const Color(0xFF1E1E1E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) {
-        final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
-        return Padding(
-          padding: EdgeInsets.fromLTRB(16, 16, 16, bottomInset + 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                '메모 추가',
-                style: Theme.of(sheetContext).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                key: const Key('note-input-field'),
-                controller: controller,
-                maxLines: 4,
-                minLines: 3,
-                decoration: const InputDecoration(
-                  hintText: '이 게시물에 남길 메모를 입력하세요',
-                  border: OutlineInputBorder(),
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (sheetContext) {
+          final bottomInset = MediaQuery.of(sheetContext).viewInsets.bottom;
+          return Padding(
+            padding: EdgeInsets.fromLTRB(16, 16, 16, bottomInset + 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '메모 추가',
+                  style: Theme.of(sheetContext).textTheme.titleMedium,
                 ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  key: const Key('note-save-button'),
-                  onPressed: () async {
-                    final noteText = controller.text.trim();
-                    if (noteText.isEmpty) {
-                      if (!mounted) {
+                const SizedBox(height: 10),
+                TextField(
+                  key: const Key('note-input-field'),
+                  controller: controller,
+                  maxLines: 4,
+                  minLines: 3,
+                  decoration: const InputDecoration(
+                    hintText: '이 게시물에 남길 메모를 입력하세요',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    key: const Key('note-save-button'),
+                    onPressed: () async {
+                      final noteText = controller.text.trim();
+                      if (noteText.isEmpty) {
+                        if (!mounted) {
+                          return;
+                        }
+                        setState(() {
+                          _errorMessage = '메모를 입력해 주세요.';
+                        });
                         return;
                       }
-                      setState(() {
-                        _errorMessage = '메모를 입력해 주세요.';
-                      });
-                      return;
-                    }
 
-                    try {
-                      final savedNote =
-                          await _apiService.saveNote(post.classificationId, noteText);
-                      if (!mounted) {
-                        return;
+                      try {
+                        final savedNote =
+                            await _apiService.saveNote(post.classificationId, noteText);
+                        if (!mounted) {
+                          return;
+                        }
+                        setState(() {
+                          _setPostNoteAtIndex(index, savedNote ?? noteText);
+                          _errorMessage = null;
+                        });
+                        if (!sheetContext.mounted) {
+                          return;
+                        }
+                        if (Navigator.of(sheetContext).canPop()) {
+                          Navigator.of(sheetContext).pop();
+                        }
+                      } catch (_) {
+                        if (!mounted) {
+                          return;
+                        }
+                        setState(() {
+                          _errorMessage = '메모를 저장하지 못했습니다.';
+                        });
                       }
-                      setState(() {
-                        _setPostNoteAtIndex(index, savedNote ?? noteText);
-                        _errorMessage = null;
-                      });
-                      if (!sheetContext.mounted) {
-                        return;
-                      }
-                      if (Navigator.of(sheetContext).canPop()) {
-                        Navigator.of(sheetContext).pop();
-                      }
-                    } catch (_) {
-                      if (!mounted) {
-                        return;
-                      }
-                      setState(() {
-                        _errorMessage = '메모를 저장하지 못했습니다.';
-                      });
-                    }
-                  },
-                  child: const Text('Save'),
+                    },
+                    child: const Text('Save'),
+                  ),
                 ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
+              ],
+            ),
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+    }
   }
 
   void _openSettings() {

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 def _now_iso() -> str:
@@ -23,6 +24,23 @@ class Post(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     scraped_at: str = Field(default_factory=_now_iso)
     run_id: str | None = None
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _coerce_metadata(cls, v: Any) -> dict[str, Any]:
+        if v is None:
+            return {}
+        if isinstance(v, str):
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, dict):
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+            return {}
+        if isinstance(v, dict):
+            return v
+        return {}
 
     def to_dict(self) -> dict:
         return self.model_dump()

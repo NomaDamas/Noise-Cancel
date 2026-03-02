@@ -67,7 +67,7 @@ class TestXScraperLogin:
         storage = {"cookies": [{"name": "auth_token", "value": "abc123"}]}
         mock_module, mock_pw, mock_browser, _, mock_page = _mock_playwright_chain(storage)
 
-        with patch("noise_cancel.scraper.x.import_module", return_value=mock_module):
+        with patch("noise_cancel.scraper.playwright_base.import_module", return_value=mock_module):
             await scraper.login(headed=True)
 
         data_dir = Path(app_config.general["data_dir"])
@@ -94,7 +94,7 @@ class TestXScraperLogin:
         scraper = XScraper(app_config)
         mock_module, mock_pw, *_ = _mock_playwright_chain()
 
-        with patch("noise_cancel.scraper.x.import_module", return_value=mock_module):
+        with patch("noise_cancel.scraper.playwright_base.import_module", return_value=mock_module):
             await scraper.login(headed=False)
 
         mock_pw.chromium.launch.assert_called_once_with(headless=True)
@@ -108,7 +108,7 @@ class TestXScraperLogin:
         mock_page.goto.side_effect = RuntimeError("Connection failed")
 
         with (
-            patch("noise_cancel.scraper.x.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.playwright_base.import_module", return_value=mock_module),
             pytest.raises(RuntimeError, match="Connection failed"),
         ):
             await scraper.login()
@@ -125,11 +125,13 @@ class TestXScraperScrapeFeed:
         mock_module, _, _, mock_context, mock_page = _mock_scrape_playwright()
 
         with (
-            patch("noise_cancel.scraper.x.import_module", return_value=mock_module),
-            patch("noise_cancel.scraper.x.validate_session", return_value={"cookies": []}) as mock_validate,
-            patch("noise_cancel.scraper.x.random_viewport", return_value={"width": 1280, "height": 720}),
-            patch("noise_cancel.scraper.x.human_scroll_sequence", return_value=[]),
-            patch("noise_cancel.scraper.x.random_delay", return_value=0.0),
+            patch("noise_cancel.scraper.playwright_base.import_module", return_value=mock_module),
+            patch(
+                "noise_cancel.scraper.playwright_base.validate_session", return_value={"cookies": []}
+            ) as mock_validate,
+            patch("noise_cancel.scraper.playwright_base.random_viewport", return_value={"width": 1280, "height": 720}),
+            patch("noise_cancel.scraper.playwright_base.human_scroll_sequence", return_value=[]),
+            patch("noise_cancel.scraper.playwright_base.random_delay", return_value=0.0),
         ):
             await scraper.scrape_feed(scroll_count=0)
 
@@ -154,12 +156,12 @@ class TestXScraperScrapeFeed:
         mock_module, _, _, _, mock_page = _mock_scrape_playwright()
 
         with (
-            patch("noise_cancel.scraper.x.import_module", return_value=mock_module),
-            patch("noise_cancel.scraper.x.validate_session", return_value={"cookies": []}),
-            patch("noise_cancel.scraper.x.random_viewport", return_value={"width": 1280, "height": 720}),
-            patch("noise_cancel.scraper.x.human_scroll_sequence", return_value=scroll_actions),
-            patch("noise_cancel.scraper.x.random_delay", return_value=0.0),
-            patch("noise_cancel.scraper.x.asyncio.sleep", new_callable=AsyncMock),
+            patch("noise_cancel.scraper.playwright_base.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.playwright_base.validate_session", return_value={"cookies": []}),
+            patch("noise_cancel.scraper.playwright_base.random_viewport", return_value={"width": 1280, "height": 720}),
+            patch("noise_cancel.scraper.playwright_base.human_scroll_sequence", return_value=scroll_actions),
+            patch("noise_cancel.scraper.playwright_base.random_delay", return_value=0.0),
+            patch("noise_cancel.scraper.playwright_base.asyncio.sleep", new_callable=AsyncMock),
         ):
             await scraper.scrape_feed(scroll_count=2)
 
@@ -205,11 +207,11 @@ class TestXScraperScrapeFeed:
         mock_module, _, _, _, _ = _mock_scrape_playwright(raw_posts=raw)
 
         with (
-            patch("noise_cancel.scraper.x.import_module", return_value=mock_module),
-            patch("noise_cancel.scraper.x.validate_session", return_value={"cookies": []}),
-            patch("noise_cancel.scraper.x.random_viewport", return_value={"width": 1280, "height": 720}),
-            patch("noise_cancel.scraper.x.human_scroll_sequence", return_value=[]),
-            patch("noise_cancel.scraper.x.random_delay", return_value=0.0),
+            patch("noise_cancel.scraper.playwright_base.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.playwright_base.validate_session", return_value={"cookies": []}),
+            patch("noise_cancel.scraper.playwright_base.random_viewport", return_value={"width": 1280, "height": 720}),
+            patch("noise_cancel.scraper.playwright_base.human_scroll_sequence", return_value=[]),
+            patch("noise_cancel.scraper.playwright_base.random_delay", return_value=0.0),
         ):
             posts = await scraper.scrape_feed(scroll_count=0)
 
@@ -226,9 +228,9 @@ class TestXScraperScrapeFeed:
         mock_module, _, _, _, _ = _mock_scrape_playwright(current_url="https://x.com/i/flow/login")
 
         with (
-            patch("noise_cancel.scraper.x.import_module", return_value=mock_module),
-            patch("noise_cancel.scraper.x.validate_session", return_value={"cookies": []}),
-            patch("noise_cancel.scraper.x.random_viewport", return_value={"width": 1280, "height": 720}),
+            patch("noise_cancel.scraper.playwright_base.import_module", return_value=mock_module),
+            patch("noise_cancel.scraper.playwright_base.validate_session", return_value={"cookies": []}),
+            patch("noise_cancel.scraper.playwright_base.random_viewport", return_value={"width": 1280, "height": 720}),
             pytest.raises(RuntimeError, match="Session expired"),
         ):
             await scraper.scrape_feed(scroll_count=0)
@@ -241,8 +243,10 @@ class TestXScraperScrapeFeed:
         mock_module, _, _, _, _ = _mock_scrape_playwright()
 
         with (
-            patch("noise_cancel.scraper.x.import_module", return_value=mock_module),
-            patch("noise_cancel.scraper.x.validate_session", side_effect=RuntimeError("No session found")),
+            patch("noise_cancel.scraper.playwright_base.import_module", return_value=mock_module),
+            patch(
+                "noise_cancel.scraper.playwright_base.validate_session", side_effect=RuntimeError("No session found")
+            ),
             pytest.raises(RuntimeError, match="No session found"),
         ):
             await scraper.scrape_feed(scroll_count=0)

@@ -2,6 +2,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:noise_cancel_app/models/post.dart';
 import 'package:noise_cancel_app/services/share_service.dart';
+import 'package:noise_cancel_app/widgets/platform_badge.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class ExpandedContent extends StatefulWidget {
@@ -180,7 +181,7 @@ class _ExpandedContentState extends State<ExpandedContent> {
                 TextButton.icon(
                   onPressed: _openAuthorProfile,
                   icon: const Icon(Icons.open_in_new, size: 16),
-                  label: const Text('LinkedIn'),
+                  label: Text(platformDisplayName(widget.post.platform)),
                 ),
               ],
             ),

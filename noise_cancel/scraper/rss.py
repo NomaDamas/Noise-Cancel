@@ -8,6 +8,7 @@ import httpx
 
 from noise_cancel.models import Post
 from noise_cancel.scraper.base import AbstractScraper
+from noise_cancel.scraper.utils import clean_str, optional_clean_str
 
 if TYPE_CHECKING:
     from noise_cancel.config import AppConfig
@@ -52,7 +53,7 @@ class RssScraper(AbstractScraper):
                     continue
 
                 parsed_feed = parsed.get("feed", {})
-                parsed_feed_author = _clean_str(_value(parsed_feed, "author"))
+                parsed_feed_author = clean_str(_value(parsed_feed, "author"))
 
                 for index, entry in enumerate(entries):
                     post = self.parse_entry(
@@ -92,10 +93,10 @@ class RssScraper(AbstractScraper):
         for feed in feeds:
             if not isinstance(feed, dict):
                 continue
-            url = _clean_str(feed.get("url"))
+            url = clean_str(feed.get("url"))
             if not url:
                 continue
-            resolved.append({"url": url, "name": _clean_str(feed.get("name"))})
+            resolved.append({"url": url, "name": clean_str(feed.get("name"))})
         return resolved
 
     def _timeout_seconds(self) -> float:
@@ -123,12 +124,12 @@ class RssScraper(AbstractScraper):
         feed_author: str,
         index: int,
     ) -> Post:
-        post_url = _optional_clean_str(_value(entry, "link"))
+        post_url = optional_clean_str(_value(entry, "link"))
         post_text = _extract_post_text(entry)
-        author_name = _optional_clean_str(_value(entry, "author")) or feed_author or feed_name or "Unknown RSS feed"
+        author_name = optional_clean_str(_value(entry, "author")) or feed_author or feed_name or "Unknown RSS feed"
         post_id = (
-            _optional_clean_str(_value(entry, "id"))
-            or _optional_clean_str(_value(entry, "guid"))
+            optional_clean_str(_value(entry, "id"))
+            or optional_clean_str(_value(entry, "guid"))
             or post_url
             or _fallback_post_id(feed_url, index, post_text)
         )
@@ -139,8 +140,8 @@ class RssScraper(AbstractScraper):
             author_name=author_name,
             post_url=post_url,
             post_text=post_text,
-            post_timestamp=_optional_clean_str(_value(entry, "published"))
-            or _optional_clean_str(_value(entry, "updated")),
+            post_timestamp=optional_clean_str(_value(entry, "published"))
+            or optional_clean_str(_value(entry, "updated")),
             metadata={
                 "feed_name": feed_name or feed_url,
                 "feed_url": feed_url,
@@ -149,7 +150,7 @@ class RssScraper(AbstractScraper):
 
 
 def _extract_post_text(entry: object) -> str:
-    summary = _clean_str(_value(entry, "summary"))
+    summary = clean_str(_value(entry, "summary"))
     if summary:
         return summary
 
@@ -159,11 +160,11 @@ def _extract_post_text(entry: object) -> str:
             if isinstance(item, dict):
                 for key, value in item.items():
                     if key == "value":
-                        text_value = _clean_str(value)
+                        text_value = clean_str(value)
                         if text_value:
                             return text_value
 
-    return _clean_str(_value(entry, "description"))
+    return clean_str(_value(entry, "description"))
 
 
 def _fallback_post_id(feed_url: str, index: int, post_text: str) -> str:
@@ -178,12 +179,3 @@ def _value(data: object, field: str) -> object:
                 return value
         return None
     return getattr(data, field, None)
-
-
-def _clean_str(value: object) -> str:
-    return str(value).strip() if value is not None else ""
-
-
-def _optional_clean_str(value: object) -> str | None:
-    cleaned = _clean_str(value)
-    return cleaned or None

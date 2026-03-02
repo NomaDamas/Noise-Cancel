@@ -584,7 +584,7 @@ class TestClassifyPosts:
         assert mock_client.messages.create.call_count == 3
 
         system_prompts = [call.kwargs["system"] for call in mock_client.messages.create.call_args_list]
-        assert "You are a LinkedIn feed classifier." in system_prompts[0]
+        assert "You are a social media feed classifier." in system_prompts[0]
         assert system_prompts[1] == "X_PLATFORM_SYSTEM_PROMPT"
         assert system_prompts[2] == "REDDIT_PLATFORM_SYSTEM_PROMPT"
 

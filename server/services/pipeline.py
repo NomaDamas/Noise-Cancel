@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import sqlite3
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, cast
 
 from noise_cancel.classifier.engine import ClassificationEngine
@@ -21,9 +23,17 @@ from noise_cancel.logger.repository import (
 from noise_cancel.models import Classification, Post
 from noise_cancel.scraper.registry import SCRAPER_REGISTRY
 
+logger = logging.getLogger(__name__)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _resolve_db_path(config: AppConfig) -> Path:
+    data_dir = Path(config.general["data_dir"])
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / "noise_cancel.db"
 
 
 def _platform_display_name(platform: str) -> str:
@@ -189,8 +199,11 @@ async def _scrape_platform_posts(
 async def _scrape_posts(config: AppConfig) -> list[Post]:
     scraped_posts: list[Post] = []
     for platform, platform_config in _enabled_platform_configs(config):
-        platform_posts = await _scrape_platform_posts(config, platform, platform_config)
-        scraped_posts.extend(platform_posts)
+        try:
+            platform_posts = await _scrape_platform_posts(config, platform, platform_config)
+            scraped_posts.extend(platform_posts)
+        except Exception as exc:
+            logger.warning("Scrape failed for platform %s: %s", platform, exc)
     return scraped_posts
 
 
@@ -205,11 +218,8 @@ def _persist_scraped_posts(
     for post in scraped_posts[:limit]:
         post.run_id = run_id
         post.content_hash = compute_content_hash(post.post_text)
-        try:
-            insert_post(conn, post)
-        except sqlite3.IntegrityError:
-            continue
-        posts_for_classification.append(post)
+        if insert_post(conn, post):
+            posts_for_classification.append(post)
     return posts_for_classification
 
 
@@ -267,12 +277,20 @@ def _classify_posts(
 
 
 async def run_pipeline(
-    conn: sqlite3.Connection,
     config: AppConfig,
     run_id: str,
     limit: int,
     skip_scrape: bool,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
+    own_conn = conn is None
+    if own_conn:
+        db_path = _resolve_db_path(config)
+        conn = sqlite3.connect(str(db_path), check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+
     posts_scraped = 0
     posts_classified = 0
 
@@ -306,3 +324,6 @@ async def run_pipeline(
             posts_classified=posts_classified,
             error_message=str(exc),
         )
+    finally:
+        if own_conn:
+            conn.close()

@@ -34,10 +34,16 @@ def _build_client(
 ) -> tuple[TestClient, sqlite3.Connection]:
     test_config = config or _test_config(tmp_path)
     monkeypatch.setattr("server.main.load_config", lambda: test_config)
-    conn = sqlite3.connect(":memory:", check_same_thread=False)
+    # Use a file-based DB so the pipeline service (which creates its own
+    # connection via _resolve_db_path) shares the same database as the
+    # lifespan-managed connection that the router uses.
+    db_path = Path(test_config.general["data_dir"]) / "noise_cancel.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    client = TestClient(create_app())
+    # Open a read connection to the same file for test assertions.
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    monkeypatch.setattr("server.main.get_connection", lambda _: conn)
-    return TestClient(create_app()), conn
+    return client, conn
 
 
 _SLACK_WEBHOOK_URL = "https://hooks.slack.com/services/test"
@@ -568,8 +574,9 @@ def test_run_pipeline_sends_expired_alert_before_raising(tmp_path: Path, monkeyp
         run_id = response.json()["run_id"]
         run_log = conn.execute("SELECT status, error_message FROM run_logs WHERE id = ?", (run_id,)).fetchone()
         assert run_log is not None
-        assert run_log["status"] == "error"
-        assert run_log["error_message"] == _SESSION_EXPIRED_ERROR
+        # Single-platform failure no longer aborts the pipeline;
+        # the run completes with a warning logged instead of erroring out.
+        assert run_log["status"] == "completed"
 
     assert sent_messages == ["❌ X session expired."]
 

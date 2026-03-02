@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from importlib import import_module
 from typing import TYPE_CHECKING
@@ -7,6 +8,8 @@ from typing import TYPE_CHECKING
 from noise_cancel.classifier.prompts import build_system_prompt, build_user_prompt
 from noise_cancel.classifier.schemas import BatchClassificationResult, PostClassification
 from noise_cancel.config import ConfigError
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from noise_cancel.config import AppConfig
@@ -192,7 +195,13 @@ class ClassificationEngine:
                     api_results = self.classify_batch(batch, system_prompt=system_prompt)
 
                     # Map API results back to original indices for this platform-specific batch.
-                    for (original_idx, _), api_cls in zip(indexed_batch, api_results, strict=True):
+                    if len(api_results) != len(indexed_batch):
+                        logger.warning(
+                            "API returned %d results for batch of %d posts",
+                            len(api_results),
+                            len(indexed_batch),
+                        )
+                    for (original_idx, _), api_cls in zip(indexed_batch, api_results, strict=False):
                         results[original_idx] = PostClassification(
                             post_index=original_idx,
                             category=api_cls.category,

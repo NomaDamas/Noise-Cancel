@@ -9,7 +9,7 @@ class PostResponse(BaseModel):
     platform: str
     author_name: str
     author_url: str
-    post_url: str
+    post_url: str | None = None
     post_text: str
     summary: str
     category: str
@@ -34,7 +34,7 @@ class ArchiveResponse(BaseModel):
 class ArchivePostResponse(ArchiveResponse):
     author_name: str
     summary: str
-    post_url: str
+    post_url: str | None = None
     post_text: str
     category: str
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 import sqlite3
@@ -14,6 +15,8 @@ from typing import TYPE_CHECKING, Any
 
 from noise_cancel.dedup.embedder import AbstractEmbedder, create_embedder_from_config
 from noise_cancel.models import Post
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from noise_cancel.config import AppConfig
@@ -156,10 +159,18 @@ class SemanticDeduplicator:
 
         embedder = self._get_embedder()
         verifier = self._get_verifier()
-        vectors = embedder.embed([post.post_text for post in posts])
-        if len(vectors) != len(posts):
-            msg = "Embedder returned mismatched vector count."
-            raise ValueError(msg)
+        try:
+            vectors = embedder.embed([post.post_text for post in posts])
+        except Exception as exc:
+            logger.warning("Embedding failed, skipping dedup: %s", exc)
+            return posts
+        if not vectors or len(vectors) != len(posts):
+            logger.warning(
+                "Embedder returned %d vectors for %d posts, skipping dedup",
+                len(vectors),
+                len(posts),
+            )
+            return posts
 
         existing = self._load_embeddings(exclude_post_ids={post.id for post in posts})
         remaining: list[Post] = []

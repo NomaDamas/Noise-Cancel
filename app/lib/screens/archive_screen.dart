@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/post.dart';
 import '../services/api_service.dart';
 import '../widgets/expanded_content.dart';
+import '../widgets/platform_badge.dart';
 
 class _PlatformFilter {
   const _PlatformFilter({
@@ -14,18 +15,6 @@ class _PlatformFilter {
 
   final String label;
   final String? value;
-}
-
-class _PlatformBadgeStyle {
-  const _PlatformBadgeStyle({
-    required this.label,
-    required this.icon,
-    required this.backgroundColor,
-  });
-
-  final String label;
-  final IconData icon;
-  final Color backgroundColor;
 }
 
 class ArchiveScreen extends StatefulWidget {
@@ -62,6 +51,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
   bool _isLoadingInitial = false;
   bool _isLoadingMore = false;
   bool _hasMore = true;
+  bool _paginationError = false;
   String? _errorMessage;
   String? _selectedPlatform;
   String _query = '';
@@ -85,52 +75,12 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
     super.dispose();
   }
 
-  static _PlatformBadgeStyle _platformBadgeStyle(String rawPlatform) {
-    switch (rawPlatform.trim().toLowerCase()) {
-      case 'linkedin':
-        return const _PlatformBadgeStyle(
-          label: 'LinkedIn',
-          icon: Icons.business,
-          backgroundColor: Color(0xFF0A66C2),
-        );
-      case 'x':
-        return const _PlatformBadgeStyle(
-          label: 'X',
-          icon: Icons.close,
-          backgroundColor: Color(0xFF000000),
-        );
-      case 'threads':
-        return const _PlatformBadgeStyle(
-          label: 'Threads',
-          icon: Icons.alternate_email,
-          backgroundColor: Color(0xFF000000),
-        );
-      case 'reddit':
-        return const _PlatformBadgeStyle(
-          label: 'Reddit',
-          icon: Icons.forum,
-          backgroundColor: Color(0xFFFF4500),
-        );
-      case 'rss':
-        return const _PlatformBadgeStyle(
-          label: 'RSS',
-          icon: Icons.rss_feed,
-          backgroundColor: Color(0xFFF26522),
-        );
-      default:
-        return const _PlatformBadgeStyle(
-          label: 'Unknown',
-          icon: Icons.public,
-          backgroundColor: Color(0xFF757575),
-        );
-    }
-  }
-
   void _onScroll() {
     if (!_scrollController.hasClients ||
         _isLoadingInitial ||
         _isLoadingMore ||
-        !_hasMore) {
+        !_hasMore ||
+        _paginationError) {
       return;
     }
 
@@ -147,6 +97,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
       _posts.clear();
       _offset = 0;
       _hasMore = true;
+      _paginationError = false;
       _errorMessage = null;
       _expandedClassificationId = null;
     });
@@ -190,8 +141,11 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
         return;
       }
       setState(() {
-        _errorMessage = '저장고를 불러오지 못했습니다.';
-        _hasMore = false;
+        if (_posts.isEmpty) {
+          _errorMessage = '저장고를 불러오지 못했습니다.';
+        } else {
+          _paginationError = true;
+        }
       });
     } finally {
       if (mounted) {
@@ -279,7 +233,7 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
   }
 
   Widget _buildPostItem(BuildContext context, Post post) {
-    final badge = _platformBadgeStyle(post.platform);
+    final badge = platformBadgeStyle(post.platform);
     final isExpanded = _expandedClassificationId == post.classificationId;
     final hasNote = post.note != null && post.note!.trim().isNotEmpty;
 
@@ -395,15 +349,31 @@ class _ArchiveScreenState extends State<ArchiveScreen> {
       return const Center(child: Text('저장된 게시물이 없습니다.'));
     }
 
+    final extraItemCount = _isLoadingMore ? 1 : (_paginationError ? 1 : 0);
+
     return RefreshIndicator(
       onRefresh: _reloadPosts,
       child: ListView.separated(
         key: const Key('archive-post-list'),
         controller: _scrollController,
         padding: const EdgeInsets.only(bottom: 20),
-        itemCount: _posts.length + (_isLoadingMore ? 1 : 0),
+        itemCount: _posts.length + extraItemCount,
         separatorBuilder: (context, index) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
+          if (_paginationError && index == _posts.length) {
+            return Center(
+              child: TextButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _paginationError = false;
+                  });
+                  _fetchPage(isPagination: true);
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('다시 시도'),
+              ),
+            );
+          }
           if (index >= _posts.length) {
             return const Padding(
               padding: EdgeInsets.symmetric(vertical: 12),

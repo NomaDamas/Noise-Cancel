@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from noise_cancel.config import AppConfig
 from noise_cancel.digest.service import generate_and_deliver_digest
@@ -18,5 +18,8 @@ def generate_digest(
     db: Annotated[sqlite3.Connection, Depends(get_db)],
     config: Annotated[AppConfig, Depends(get_config)],
 ) -> DigestGenerateResponse:
-    result = generate_and_deliver_digest(db, config)
+    try:
+        result = generate_and_deliver_digest(db, config)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Digest generation failed: {exc}") from exc
     return DigestGenerateResponse(digest_text=result.digest_text)

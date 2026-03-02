@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
 from abc import ABC, abstractmethod
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from noise_cancel.config import AppConfig
@@ -69,21 +72,28 @@ class OpenAIEmbedder(AbstractEmbedder):
         if not texts:
             return []
 
-        response = httpx.post(
-            f"{self._base_url}/embeddings",
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
-            json={"model": self.model, "input": texts},
-            timeout=self._timeout_seconds,
-        )
-        response.raise_for_status()
+        try:
+            response = httpx.post(
+                f"{self._base_url}/embeddings",
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"model": self.model, "input": texts},
+                timeout=self._timeout_seconds,
+            )
+            response.raise_for_status()
 
-        payload = response.json()
-        data = payload.get("data", [])
-        ordered = sorted(data, key=lambda item: int(item.get("index", 0)))
-        return [[float(value) for value in item.get("embedding", [])] for item in ordered]
+            payload = response.json()
+            data = payload.get("data", [])
+            ordered = sorted(data, key=lambda item: int(item.get("index", 0)))
+            return [[float(value) for value in item.get("embedding", [])] for item in ordered]
+        except httpx.HTTPError as exc:
+            logger.warning("OpenAI embedding request failed: %s", exc)
+            return []
+        except (KeyError, ValueError, TypeError) as exc:
+            logger.warning("OpenAI embedding response parsing failed: %s", exc)
+            return []
 
 
 class VoyageEmbedder(AbstractEmbedder):
@@ -108,20 +118,28 @@ class VoyageEmbedder(AbstractEmbedder):
         if not texts:
             return []
 
-        response = httpx.post(
-            f"{self._base_url}/embeddings",
-            headers={
-                "Authorization": f"Bearer {self._api_key}",
-                "Content-Type": "application/json",
-            },
-            json={"model": self.model, "input": texts},
-            timeout=self._timeout_seconds,
-        )
-        response.raise_for_status()
+        try:
+            response = httpx.post(
+                f"{self._base_url}/embeddings",
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={"model": self.model, "input": texts},
+                timeout=self._timeout_seconds,
+            )
+            response.raise_for_status()
 
-        payload = response.json()
-        data = payload.get("data", [])
-        return [[float(value) for value in item.get("embedding", [])] for item in data]
+            payload = response.json()
+            data = payload.get("data", [])
+            ordered = sorted(data, key=lambda item: int(item.get("index", 0)))
+            return [[float(value) for value in item.get("embedding", [])] for item in ordered]
+        except httpx.HTTPError as exc:
+            logger.warning("Voyage embedding request failed: %s", exc)
+            return []
+        except (KeyError, ValueError, TypeError) as exc:
+            logger.warning("Voyage embedding response parsing failed: %s", exc)
+            return []
 
 
 def create_embedder_from_config(config: AppConfig) -> AbstractEmbedder:

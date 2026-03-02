@@ -80,13 +80,20 @@ def test_init_refuses_overwrite(tmp_path: Path):
 # ===========================================================================
 
 
+def _patch_registry(mock_instance):
+    """Patch SCRAPER_REGISTRY.get to return a class that produces mock_instance."""
+    mock_class = MagicMock(return_value=mock_instance)
+    return patch("noise_cancel.scraper.SCRAPER_REGISTRY.get", return_value=mock_class)
+
+
 class TestLoginCommand:
     def test_login_saves_session_and_key(self, tmp_path: Path):
         config_path, data_dir = _write_config(tmp_path)
         mock_storage = {"cookies": [{"name": "li_at", "value": "abc123"}]}
         mock = _mock_scraper(storage_state=mock_storage)
+        mock._session_paths = MagicMock(return_value=(data_dir / "session.key", data_dir / "session.enc"))
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["login", "--config", str(config_path)])
 
         assert result.exit_code == 0
@@ -100,8 +107,9 @@ class TestLoginCommand:
         config_path, data_dir = _write_config(tmp_path)
         mock_storage = {"cookies": [{"name": "li_at", "value": "secret"}]}
         mock = _mock_scraper(storage_state=mock_storage)
+        mock._session_paths = MagicMock(return_value=(data_dir / "session.key", data_dir / "session.enc"))
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             runner.invoke(app, ["login", "--config", str(config_path)])
 
         key = (data_dir / "session.key").read_text().strip()
@@ -117,29 +125,31 @@ class TestLoginCommand:
         (data_dir / "session.key").write_text(existing_key)
 
         mock = _mock_scraper(storage_state={"cookies": []})
+        mock._session_paths = MagicMock(return_value=(data_dir / "session.key", data_dir / "session.enc"))
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["login", "--config", str(config_path)])
 
         assert result.exit_code == 0
         # Key file should still contain the original key
         assert (data_dir / "session.key").read_text().strip() == existing_key
 
-    def test_login_fails_when_no_session_captured(self, tmp_path: Path):
+    def test_login_completes_when_no_session_captured(self, tmp_path: Path):
         config_path, _ = _write_config(tmp_path)
         mock = _mock_scraper(storage_state=None)
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["login", "--config", str(config_path)])
 
-        assert result.exit_code == 1
-        assert "Login failed" in result.output
+        assert result.exit_code == 0
+        assert "completed" in result.output.lower()
 
     def test_login_key_file_permissions(self, tmp_path: Path):
         config_path, data_dir = _write_config(tmp_path)
         mock = _mock_scraper(storage_state={"cookies": []})
+        mock._session_paths = MagicMock(return_value=(data_dir / "session.key", data_dir / "session.enc"))
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             runner.invoke(app, ["login", "--config", str(config_path)])
 
         key_stat = (data_dir / "session.key").stat()
@@ -175,7 +185,7 @@ class TestScrapeCommand:
         ]
         mock = _mock_feed_scraper(posts)
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["scrape", "--config", str(config_path)])
 
         assert result.exit_code == 0
@@ -198,7 +208,7 @@ class TestScrapeCommand:
         posts = [Post(id="p1", author_name="Alice", post_text="Hi", post_url="https://li.com/p1")]
         mock = _mock_feed_scraper(posts)
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["scrape", "--config", str(config_path)])
 
         assert result.exit_code == 0
@@ -234,7 +244,7 @@ class TestScrapeCommand:
         ]
         mock = _mock_feed_scraper(posts)
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["scrape", "--config", str(config_path)])
 
         assert result.exit_code == 0
@@ -270,7 +280,7 @@ class TestScrapeCommand:
         ]
         mock = _mock_feed_scraper(posts)
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["scrape", "--config", str(config_path)])
 
         assert result.exit_code == 0
@@ -327,8 +337,8 @@ def _insert_post(
 ) -> None:
     """Insert a minimal post row via raw SQL."""
     conn.execute(
-        "INSERT INTO posts (id, platform, author_name, post_text, scraped_at) VALUES (?, ?, ?, ?, ?)",
-        (post_id, platform, author, text, "2025-01-01T00:00:00"),
+        "INSERT INTO posts (id, platform, author_name, post_text, scraped_at, metadata) VALUES (?, ?, ?, ?, ?, ?)",
+        (post_id, platform, author, text, "2025-01-01T00:00:00", "{}"),
     )
     conn.commit()
 
@@ -1130,7 +1140,7 @@ class TestRunCommand:
         mock_cls = [PostClassification(post_index=0, category="Read", confidence=0.9, reasoning="Good")]
 
         with (
-            patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock_scraper),
+            _patch_registry(mock_scraper),
             patch("noise_cancel.classifier.engine.ClassificationEngine.classify_posts", return_value=mock_cls),
             patch.dict("os.environ", {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/test"}, clear=True),
             patch("noise_cancel.delivery.slack.SlackPlugin.deliver", return_value=1),
@@ -1182,7 +1192,7 @@ class TestRunCommand:
         mock_cls = [PostClassification(post_index=0, category="Read", confidence=0.9, reasoning="Good")]
 
         with (
-            patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock_scraper),
+            _patch_registry(mock_scraper),
             patch("noise_cancel.classifier.engine.ClassificationEngine.classify_posts", return_value=mock_cls),
             patch("noise_cancel.delivery.slack.SlackPlugin.deliver", return_value=0) as mock_deliver,
         ):

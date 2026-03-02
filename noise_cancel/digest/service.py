@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,8 @@ from pydantic import BaseModel, Field
 
 from noise_cancel.config import AppConfig
 from noise_cancel.delivery.loader import get_delivery_plugin_class
+
+logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """You are an editor writing a daily social-feed digest.
 Summarize the provided Read-classified posts from multiple platforms.
@@ -184,21 +187,25 @@ def _generate_structured_summary(
 
     anthropic = import_module("anthropic")
     client = anthropic.Anthropic()
-    response = client.messages.create(
-        model=model,
-        max_tokens=2048,
-        temperature=temperature,
-        system=_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_prompt}],
-        tools=[
-            {
-                "name": "write_digest",
-                "description": "Write a structured daily digest summary.",
-                "input_schema": DailyDigestSummary.model_json_schema(),
-            }
-        ],
-        tool_choice={"type": "tool", "name": "write_digest"},
-    )
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=2048,
+            temperature=temperature,
+            system=_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_prompt}],
+            tools=[
+                {
+                    "name": "write_digest",
+                    "description": "Write a structured daily digest summary.",
+                    "input_schema": DailyDigestSummary.model_json_schema(),
+                }
+            ],
+            tool_choice={"type": "tool", "name": "write_digest"},
+        )
+    except Exception:
+        logger.exception("Claude API error during digest generation")
+        return DailyDigestSummary()
 
     for block in response.content:
         if getattr(block, "type", None) != "tool_use":

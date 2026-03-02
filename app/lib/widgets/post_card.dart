@@ -2,19 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:noise_cancel_app/models/post.dart';
 import 'package:noise_cancel_app/services/share_service.dart';
 import 'package:noise_cancel_app/widgets/expanded_content.dart';
+import 'package:noise_cancel_app/widgets/platform_badge.dart';
 import 'package:url_launcher/url_launcher.dart';
-
-class _PlatformBadgeStyle {
-  const _PlatformBadgeStyle({
-    required this.label,
-    required this.icon,
-    required this.backgroundColor,
-  });
-
-  final String label;
-  final IconData icon;
-  final Color backgroundColor;
-}
 
 class PostCard extends StatelessWidget {
   const PostCard({
@@ -32,47 +21,6 @@ class PostCard extends StatelessWidget {
 
   static const _saveColor = Color(0xFF4CAF50);
   static const _dropColor = Color(0xFFEF5350);
-
-  static _PlatformBadgeStyle _platformBadgeStyle(String rawPlatform) {
-    switch (rawPlatform.trim().toLowerCase()) {
-      case 'linkedin':
-        return const _PlatformBadgeStyle(
-          label: 'LinkedIn',
-          icon: Icons.business,
-          backgroundColor: Color(0xFF0A66C2),
-        );
-      case 'x':
-        return const _PlatformBadgeStyle(
-          label: 'X',
-          icon: Icons.close,
-          backgroundColor: Color(0xFF000000),
-        );
-      case 'threads':
-        return const _PlatformBadgeStyle(
-          label: 'Threads',
-          icon: Icons.alternate_email,
-          backgroundColor: Color(0xFF000000),
-        );
-      case 'reddit':
-        return const _PlatformBadgeStyle(
-          label: 'Reddit',
-          icon: Icons.forum,
-          backgroundColor: Color(0xFFFF4500),
-        );
-      case 'rss':
-        return const _PlatformBadgeStyle(
-          label: 'RSS',
-          icon: Icons.rss_feed,
-          backgroundColor: Color(0xFFF26522),
-        );
-      default:
-        return const _PlatformBadgeStyle(
-          label: 'Unknown',
-          icon: Icons.public,
-          backgroundColor: Color(0xFF757575),
-        );
-    }
-  }
 
   void _showExpandedContent(BuildContext context) {
     showModalBottomSheet<void>(
@@ -123,7 +71,7 @@ class PostCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
     final opacity = (horizontalOffsetPercentage.abs() / 100).clamp(0.0, 1.0);
-    final platformBadgeStyle = _platformBadgeStyle(post.platform);
+    final badge = platformBadgeStyle(post.platform);
     final hasNote = post.note != null && post.note!.trim().isNotEmpty;
 
     final overlayColor =
@@ -168,20 +116,20 @@ class PostCard extends StatelessWidget {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: platformBadgeStyle.backgroundColor,
+                      color: badge.backgroundColor,
                       borderRadius: BorderRadius.circular(999),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          platformBadgeStyle.icon,
+                          badge.icon,
                           size: 14,
                           color: Colors.white,
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          platformBadgeStyle.label,
+                          badge.label,
                           style: textTheme.labelSmall?.copyWith(
                             color: Colors.white,
                             fontWeight: FontWeight.w700,
@@ -218,7 +166,7 @@ class PostCard extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: _openPostUrl,
                     icon: const Icon(Icons.open_in_new),
-                    label: const Text('LinkedIn에서 보기'),
+                    label: Text('${platformDisplayName(post.platform)}에서 보기'),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: Colors.white70,
                       side: const BorderSide(color: Colors.white24),

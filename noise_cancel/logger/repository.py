@@ -8,13 +8,18 @@ from datetime import datetime, timezone
 from noise_cancel.models import Classification, Post, RunLog
 
 
-def insert_post(conn: sqlite3.Connection, post: Post) -> None:
+def insert_post(conn: sqlite3.Connection, post: Post) -> bool:
+    """Insert a post row. Returns True if inserted, False if skipped (duplicate)."""
     d = post.to_dict()
-    conn.execute(
-        """INSERT INTO posts
+    # OR IGNORE: duplicate post_url / content_hash rows are silently skipped
+    # instead of raising IntegrityError.  Different platforms (RSS, Reddit,
+    # LinkedIn) can legitimately produce overlapping URLs.
+    cursor = conn.execute(
+        """INSERT OR IGNORE INTO posts
            (id, platform, author_name, author_url, post_url, post_text,
-            content_hash, media_type, post_timestamp, scraped_at, run_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            content_hash, media_type, post_timestamp, scraped_at, run_id,
+            metadata)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             d["id"],
             d["platform"],
@@ -27,9 +32,11 @@ def insert_post(conn: sqlite3.Connection, post: Post) -> None:
             d["post_timestamp"],
             d["scraped_at"],
             d["run_id"],
+            json.dumps(d["metadata"]) if d.get("metadata") else None,
         ),
     )
     conn.commit()
+    return cursor.rowcount > 0
 
 
 def insert_classification(conn: sqlite3.Connection, classification: Classification) -> None:
@@ -87,6 +94,7 @@ _ALLOWED_RUN_LOG_COLUMNS = frozenset({
     "error_message",
 })
 _ALLOWED_SWIPE_STATUSES = frozenset({"pending", "archived", "deleted", "duplicate"})
+_ALLOWED_BREAKDOWN_COLUMNS = frozenset({"platform", "category"})
 _ALLOWED_FEEDBACK_ACTIONS = frozenset({"archive", "delete"})
 _CONFIDENCE_BUCKETS: tuple[tuple[str, float], ...] = (
     ("0.0-0.2", 0.2),
@@ -215,8 +223,9 @@ def get_posts_for_feed(
         params.append(platform)
 
     if query is not None:
-        where_clauses.append("p.post_text LIKE ?")
-        params.append(f"%{query}%")
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        where_clauses.append("p.post_text LIKE ? ESCAPE '\\'")
+        params.append(f"%{escaped}%")
 
     sql += " WHERE " + " AND ".join(where_clauses)
     sql += " ORDER BY c.classified_at DESC LIMIT ? OFFSET ?"
@@ -273,8 +282,9 @@ def count_posts_for_feed(
         params.append(platform)
 
     if query is not None:
-        where_clauses.append("p.post_text LIKE ?")
-        params.append(f"%{query}%")
+        escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        where_clauses.append("p.post_text LIKE ? ESCAPE '\\'")
+        params.append(f"%{escaped}%")
 
     sql += " WHERE " + " AND ".join(where_clauses)
     row = conn.execute(sql, params).fetchone()
@@ -308,7 +318,12 @@ def mark_delivered(conn: sqlite3.Connection, classification_id: str) -> None:
     conn.commit()
 
 
-def update_swipe_status(conn: sqlite3.Connection, classification_id: str, status: str) -> None:
+def update_swipe_status(
+    conn: sqlite3.Connection,
+    classification_id: str,
+    status: str,
+    commit: bool = True,
+) -> None:
     if status not in _ALLOWED_SWIPE_STATUSES:
         msg = f"Invalid swipe status: {status}"
         raise ValueError(msg)
@@ -318,7 +333,8 @@ def update_swipe_status(conn: sqlite3.Connection, classification_id: str, status
         "UPDATE classifications SET swipe_status = ?, swiped_at = ? WHERE id = ?",
         (status, now, classification_id),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def insert_feedback(
@@ -328,6 +344,7 @@ def insert_feedback(
     platform: str | None,
     category: str | None,
     confidence: float | None,
+    commit: bool = True,
 ) -> dict:
     if action not in _ALLOWED_FEEDBACK_ACTIONS:
         msg = f"Invalid feedback action: {action}"
@@ -341,7 +358,8 @@ def insert_feedback(
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (feedback_id, classification_id, action, platform, category, confidence, created_at),
     )
-    conn.commit()
+    if commit:
+        conn.commit()
     row = conn.execute(
         """SELECT id, classification_id, action, platform, category, confidence, created_at
            FROM feedback
@@ -358,6 +376,7 @@ def record_feedback_for_classification(
     conn: sqlite3.Connection,
     classification_id: str,
     action: str,
+    commit: bool = True,
 ) -> dict | None:
     if action not in _ALLOWED_FEEDBACK_ACTIONS:
         msg = f"Invalid feedback action: {action}"
@@ -380,6 +399,7 @@ def record_feedback_for_classification(
         platform=row["platform"],
         category=row["category"],
         confidence=row["confidence"],
+        commit=commit,
     )
 
 
@@ -393,6 +413,10 @@ def _build_feedback_breakdown(
     conn: sqlite3.Connection,
     label_column: str,
 ) -> list[dict]:
+    if label_column not in _ALLOWED_BREAKDOWN_COLUMNS:
+        msg = f"Invalid breakdown column: {label_column}"
+        raise ValueError(msg)
+
     rows = conn.execute(
         f"""SELECT COALESCE({label_column}, 'unknown') AS label,
                    SUM(CASE WHEN action = 'archive' THEN 1 ELSE 0 END) AS archive_count,

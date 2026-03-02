@@ -14,7 +14,7 @@ def build_system_prompt(
     language: str = "english",
 ) -> str:
     lines = [
-        "You are a LinkedIn feed classifier. Classify each post into exactly one category.",
+        "You are a social media feed classifier. Classify each post into exactly one category.",
         "",
         "## Categories",
     ]
@@ -49,6 +49,23 @@ def build_system_prompt(
     lines.append("**Author**: Growth Guru")
     lines.append("**Classification**: Skip (confidence: 0.85)")
     lines.append("**Reasoning**: Clickbait thread format with exaggerated productivity claims.")
+    lines.append("")
+    lines.append(
+        '**Post**: "[r/MachineLearning] We benchmarked LoRA vs full fine-tuning on Llama 3 '
+        "across 8 downstream tasks. LoRA matched full FT on 6/8 while using 12x less memory. "
+        'Code + results in repo."'
+    )
+    lines.append("**Author**: u/ml_researcher_42")
+    lines.append("**Classification**: Read (confidence: 0.92)")
+    lines.append("**Reasoning**: Reproducible benchmark comparison with concrete results and shared code.")
+    lines.append("")
+    lines.append(
+        '**Post**: "OpenAI just dropped GPT-5. Early benchmarks look insane. '
+        'This changes everything for agents. Curious what others think."'
+    )
+    lines.append("**Author**: @ai_observer")
+    lines.append("**Classification**: Read (confidence: 0.70)")
+    lines.append("**Reasoning**: Short-form breaking news commentary — informational but light on substance.")
 
     lines.append("")
     lines.append("## Instructions")

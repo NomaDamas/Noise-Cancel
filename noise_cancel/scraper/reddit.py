@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import os
 from datetime import datetime, timezone
 from importlib import import_module
@@ -7,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from noise_cancel.models import Post
 from noise_cancel.scraper.base import AbstractScraper
+from noise_cancel.scraper.utils import clean_str, optional_clean_str
 
 if TYPE_CHECKING:
     import praw
@@ -64,6 +66,19 @@ class RedditScraper(AbstractScraper):
             for key, env_names in _CREDENTIAL_ENV_MAP.items()
         }
 
+    def _init_client_sync(self, credentials: dict[str, str], user_agent: str) -> None:
+        """Synchronous PRAW client initialization (runs in a thread)."""
+        praw = import_module("praw")
+        reddit = praw.Reddit(
+            client_id=credentials["client_id"],
+            client_secret=credentials["client_secret"],
+            username=credentials["username"],
+            password=credentials["password"],
+            user_agent=user_agent,
+        )
+        reddit.user.me()
+        self._reddit = reddit
+
     async def login(self, headed: bool = True) -> None:
         del headed  # OAuth via API does not require browser automation.
 
@@ -80,16 +95,21 @@ class RedditScraper(AbstractScraper):
             or f"{_DEFAULT_USER_AGENT} by {credentials['username']}"
         )
 
-        praw = import_module("praw")
-        reddit = praw.Reddit(
-            client_id=credentials["client_id"],
-            client_secret=credentials["client_secret"],
-            username=credentials["username"],
-            password=credentials["password"],
-            user_agent=user_agent,
-        )
-        reddit.user.me()
-        self._reddit = reddit
+        await asyncio.to_thread(self._init_client_sync, credentials, user_agent)
+
+    def _fetch_posts_sync(self, limit: int) -> list[object]:
+        """Synchronous feed reading (runs in a thread)."""
+        if self._reddit is None:
+            msg = "Reddit client is not initialized"
+            raise RuntimeError(msg)
+
+        feed_sort = str(self._platform_config().get("feed_sort", "best")).strip().lower()
+        if feed_sort == "hot":
+            submissions = self._reddit.front.hot(limit=limit)
+        else:
+            submissions = self._reddit.front.best(limit=limit)
+
+        return list(submissions)
 
     async def scrape_feed(self, scroll_count: int = 10) -> list[Post]:
         if self._reddit is None:
@@ -100,11 +120,7 @@ class RedditScraper(AbstractScraper):
             raise RuntimeError(msg)
 
         limit = max(1, int(scroll_count))
-        feed_sort = str(self._platform_config().get("feed_sort", "best")).strip().lower()
-        if feed_sort == "hot":
-            submissions = self._reddit.front.hot(limit=limit)
-        else:
-            submissions = self._reddit.front.best(limit=limit)
+        submissions = await asyncio.to_thread(self._fetch_posts_sync, limit)
 
         posts: list[Post] = []
         seen_ids: set[str] = set()
@@ -122,20 +138,20 @@ class RedditScraper(AbstractScraper):
         self._reddit = None
 
     def parse_submission(self, submission: object) -> Post:
-        post_id = _clean_str(getattr(submission, "id", ""))
-        author_name = _clean_str(getattr(getattr(submission, "author", None), "name", "")) or "[deleted]"
-        title = _clean_str(getattr(submission, "title", ""))
-        selftext = _clean_str(getattr(submission, "selftext", ""))
+        post_id = clean_str(getattr(submission, "id", ""))
+        author_name = clean_str(getattr(getattr(submission, "author", None), "name", "")) or "[deleted]"
+        title = clean_str(getattr(submission, "title", ""))
+        selftext = clean_str(getattr(submission, "selftext", ""))
         post_text = title
         if selftext:
             post_text = f"{title}\n\n{selftext}" if title else selftext
 
-        permalink = _clean_str(getattr(submission, "permalink", ""))
+        permalink = clean_str(getattr(submission, "permalink", ""))
         post_url = None
         if permalink:
             post_url = f"https://reddit.com{permalink}" if permalink.startswith("/") else permalink
         if post_url is None:
-            post_url = _optional_clean_str(getattr(submission, "url", None))
+            post_url = optional_clean_str(getattr(submission, "url", None))
 
         created_utc = getattr(submission, "created_utc", None)
         post_timestamp = None
@@ -145,7 +161,7 @@ class RedditScraper(AbstractScraper):
             except (TypeError, ValueError):
                 post_timestamp = None
 
-        subreddit = _clean_str(getattr(getattr(submission, "subreddit", None), "display_name", ""))
+        subreddit = clean_str(getattr(getattr(submission, "subreddit", None), "display_name", ""))
         author_url = None if author_name == "[deleted]" else f"https://reddit.com/user/{author_name}"
 
         metadata: dict[str, Any] = {}
@@ -162,12 +178,3 @@ class RedditScraper(AbstractScraper):
             post_timestamp=post_timestamp,
             metadata=metadata,
         )
-
-
-def _clean_str(value: object) -> str:
-    return str(value).strip() if value is not None else ""
-
-
-def _optional_clean_str(value: object) -> str | None:
-    cleaned = _clean_str(value)
-    return cleaned or None
