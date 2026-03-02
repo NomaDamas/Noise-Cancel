@@ -270,3 +270,40 @@ def test_load_config_supports_reddit_platform_credentials(tmp_path: Path):
     assert reddit["client_secret"] == "$NC_REDDIT_CLIENT_SECRET"  # noqa: S105
     assert reddit["username"] == "$NC_REDDIT_USERNAME"
     assert reddit["password"] == "$NC_REDDIT_PASSWORD"  # noqa: S105
+
+
+def test_default_scraper_config_has_rss_platform():
+    config = AppConfig()
+
+    assert "rss" in config.scraper["platforms"]
+    rss = config.scraper["platforms"]["rss"]
+    assert rss["enabled"] is False
+    assert rss["feeds"] == []
+
+
+def test_load_config_supports_rss_feed_list(tmp_path: Path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        yaml.dump({
+            "scraper": {
+                "platforms": {
+                    "rss": {
+                        "enabled": True,
+                        "feeds": [
+                            {"url": "https://example.com/feed.xml", "name": "Example Feed"},
+                            {"url": "https://another.example.com/rss", "name": "Another Feed"},
+                        ],
+                    }
+                }
+            }
+        })
+    )
+
+    config = load_config(str(config_file))
+    rss = config.scraper["platforms"]["rss"]
+
+    assert rss["enabled"] is True
+    assert rss["feeds"] == [
+        {"url": "https://example.com/feed.xml", "name": "Example Feed"},
+        {"url": "https://another.example.com/rss", "name": "Another Feed"},
+    ]

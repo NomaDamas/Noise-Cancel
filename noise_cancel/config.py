@@ -35,11 +35,18 @@ _DEFAULT_REDDIT_PLATFORM: dict[str, Any] = {
     "username": "",
     "password": "",
 }
+_DEFAULT_RSS_PLATFORM: dict[str, Any] = {
+    "enabled": False,
+    **_DEFAULT_SCRAPER_BASE,
+    "feeds": [],
+    "request_timeout_seconds": 10.0,
+}
 
 _DEFAULT_SCRAPER: dict[str, Any] = {
     **_DEFAULT_SCRAPER_BASE,
     "platforms": {
         "linkedin": dict(_DEFAULT_SCRAPER_PLATFORM),
+        "rss": dict(_DEFAULT_RSS_PLATFORM),
         "reddit": dict(_DEFAULT_REDDIT_PLATFORM),
     },
 }
@@ -242,6 +249,12 @@ scraper:
       client_secret: "$NC_REDDIT_CLIENT_SECRET"
       username: "$NC_REDDIT_USERNAME"
       password: "$NC_REDDIT_PASSWORD"
+    rss:
+      enabled: false
+      request_timeout_seconds: 10.0
+      feeds:
+        - url: "https://example.com/feed.xml"
+          name: "Example Feed"
 
 classifier:
   model: claude-sonnet-4-6
