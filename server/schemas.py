@@ -5,18 +5,18 @@ from pydantic import BaseModel, Field
 
 class PostResponse(BaseModel):
     id: str
-    classification_id: str
-    platform: str
-    author_name: str
+    classification_id: str | None = None
+    platform: str | None = None
+    author_name: str | None = None
     author_url: str | None = None
     post_url: str | None = None
-    post_text: str
-    summary: str
-    category: str
-    confidence: float
-    reasoning: str
-    classified_at: str
-    swipe_status: str
+    post_text: str | None = None
+    summary: str | None = None
+    category: str | None = None
+    confidence: float | None = None
+    reasoning: str | None = None
+    classified_at: str | None = None
+    swipe_status: str | None = None
     note: str | None = None
 
 

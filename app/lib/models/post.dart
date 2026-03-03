@@ -33,27 +33,26 @@ class Post {
 
   factory Post.fromJson(Map<String, dynamic> json) {
     final confidenceValue = json['confidence'];
-    if (confidenceValue is! num) {
-      throw const FormatException('Missing or invalid "confidence" field');
-    }
 
     return Post(
       id: _readString(json, 'id'),
-      classificationId: _readString(json, 'classificationId',
-          fallbackKey: 'classification_id'),
-      platform: _readString(json, 'platform'),
-      authorName: _readString(json, 'authorName', fallbackKey: 'author_name'),
+      classificationId: _readStringOrDefault(json, 'classificationId',
+          fallbackKey: 'classification_id', defaultValue: ''),
+      platform: _readStringOrDefault(json, 'platform', defaultValue: 'unknown'),
+      authorName: _readStringOrDefault(json, 'authorName',
+          fallbackKey: 'author_name', defaultValue: 'Unknown'),
       authorUrl: _readOptionalString(json, 'authorUrl', fallbackKey: 'author_url'),
       postUrl: _readOptionalString(json, 'postUrl', fallbackKey: 'post_url'),
-      postText: _readString(json, 'postText', fallbackKey: 'post_text'),
-      summary: _readString(json, 'summary'),
-      category: _readString(json, 'category'),
-      confidence: confidenceValue.toDouble(),
-      reasoning: _readString(json, 'reasoning'),
-      classifiedAt:
-          _readString(json, 'classifiedAt', fallbackKey: 'classified_at'),
-      swipeStatus:
-          _readString(json, 'swipeStatus', fallbackKey: 'swipe_status'),
+      postText: _readStringOrDefault(json, 'postText',
+          fallbackKey: 'post_text', defaultValue: ''),
+      summary: _readStringOrDefault(json, 'summary', defaultValue: ''),
+      category: _readStringOrDefault(json, 'category', defaultValue: 'Unknown'),
+      confidence: (confidenceValue is num) ? confidenceValue.toDouble() : 0.0,
+      reasoning: _readStringOrDefault(json, 'reasoning', defaultValue: ''),
+      classifiedAt: _readStringOrDefault(json, 'classifiedAt',
+          fallbackKey: 'classified_at', defaultValue: ''),
+      swipeStatus: _readStringOrDefault(json, 'swipeStatus',
+          fallbackKey: 'swipe_status', defaultValue: 'pending'),
       note: _readOptionalString(json, 'note'),
     );
   }
@@ -68,6 +67,19 @@ class Post {
       return value;
     }
     throw FormatException('Missing or invalid "$key" field');
+  }
+
+  static String _readStringOrDefault(
+    Map<String, dynamic> json,
+    String key, {
+    String? fallbackKey,
+    required String defaultValue,
+  }) {
+    final value = json[key] ?? (fallbackKey != null ? json[fallbackKey] : null);
+    if (value is String) {
+      return value;
+    }
+    return defaultValue;
   }
 
   static String? _readOptionalString(
