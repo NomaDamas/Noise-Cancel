@@ -106,6 +106,19 @@ def test_archive_updates_status_and_returns_archive_payload(tmp_path: Path, monk
         assert row is not None
         assert row["swipe_status"] == "archived"
 
+        feedback_row = conn.execute(
+            """SELECT classification_id, action, platform, category, confidence
+               FROM feedback
+               WHERE classification_id = ?""",
+            ("cls-1",),
+        ).fetchone()
+        assert feedback_row is not None
+        assert feedback_row["classification_id"] == "cls-1"
+        assert feedback_row["action"] == "archive"
+        assert feedback_row["platform"] == "linkedin"
+        assert feedback_row["category"] == "Read"
+        assert feedback_row["confidence"] == 0.95
+
 
 def test_archive_returns_404_for_missing_classification_id(tmp_path: Path, monkeypatch) -> None:
     client, conn = _build_client(tmp_path, monkeypatch)
@@ -137,6 +150,19 @@ def test_delete_updates_status_and_removes_post_from_feed(tmp_path: Path, monkey
         ).fetchone()
         assert row is not None
         assert row["swipe_status"] == "deleted"
+
+        feedback_row = conn.execute(
+            """SELECT classification_id, action, platform, category, confidence
+               FROM feedback
+               WHERE classification_id = ?""",
+            ("cls-1",),
+        ).fetchone()
+        assert feedback_row is not None
+        assert feedback_row["classification_id"] == "cls-1"
+        assert feedback_row["action"] == "delete"
+        assert feedback_row["platform"] == "linkedin"
+        assert feedback_row["category"] == "Read"
+        assert feedback_row["confidence"] == 0.95
 
         feed_response = client.get("/api/posts")
         assert feed_response.status_code == 200

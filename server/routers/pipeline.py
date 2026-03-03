@@ -23,6 +23,13 @@ def run_pipeline_endpoint(
     config: Annotated[AppConfig, Depends(get_config)],
     request: PipelineRunRequest | None = None,
 ) -> PipelineRunResponse:
+    recent_runs = get_run_logs(db, limit=1)
+    if recent_runs and recent_runs[0]["status"] == "running":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Pipeline already running (run_id: {recent_runs[0]['id']})",
+        )
+
     payload = request or PipelineRunRequest()
 
     run_id = uuid.uuid4().hex
@@ -30,7 +37,6 @@ def run_pipeline_endpoint(
 
     background_tasks.add_task(
         run_pipeline,
-        db,
         config,
         run_id,
         payload.limit,

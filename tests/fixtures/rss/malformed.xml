@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Broken Feed</title>
+    <item>
+      <title>Bad Entry</title>
+      <link>https://broken.example.com/posts/1</link>

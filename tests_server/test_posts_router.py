@@ -27,9 +27,10 @@ def _test_config(tmp_path: Path) -> AppConfig:
     )
 
 
-def _post(post_id: str, run_id: str = "run-1") -> Post:
+def _post(post_id: str, run_id: str = "run-1", platform: str = "linkedin") -> Post:
     return Post(
         id=post_id,
+        platform=platform,
         author_name=f"Author {post_id}",
         author_url=f"https://linkedin.com/in/{post_id}",
         post_url=f"https://linkedin.com/posts/{post_id}",
@@ -68,11 +69,11 @@ def _seed_feed_data(conn: sqlite3.Connection) -> None:
         ),
     )
 
-    insert_post(conn, _post("post-1"))
-    insert_post(conn, _post("post-2"))
-    insert_post(conn, _post("post-3"))
-    insert_post(conn, _post("post-4"))
-    insert_post(conn, _post("post-5"))
+    insert_post(conn, _post("post-1", platform="linkedin"))
+    insert_post(conn, _post("post-2", platform="x"))
+    insert_post(conn, _post("post-3", platform="reddit"))
+    insert_post(conn, _post("post-4", platform="threads"))
+    insert_post(conn, _post("post-5", platform="linkedin"))
 
     insert_classification(
         conn,
@@ -148,6 +149,7 @@ def test_get_posts_default_response_shape(tmp_path: Path, monkeypatch) -> None:
         assert set(first) == {
             "id",
             "classification_id",
+            "platform",
             "author_name",
             "author_url",
             "post_url",
@@ -158,9 +160,12 @@ def test_get_posts_default_response_shape(tmp_path: Path, monkeypatch) -> None:
             "reasoning",
             "classified_at",
             "swipe_status",
+            "note",
         }
         assert first["category"] == "Read"
+        assert first["platform"] == "x"
         assert first["swipe_status"] == "pending"
+        assert first["note"] is None
 
 
 def test_get_posts_filters_by_category_and_swipe_status(tmp_path: Path, monkeypatch) -> None:
@@ -180,6 +185,59 @@ def test_get_posts_filters_by_category_and_swipe_status(tmp_path: Path, monkeypa
         assert archived_payload["total"] == 1
         assert [post["classification_id"] for post in archived_payload["posts"]] == ["cls-4"]
         assert archived_payload["posts"][0]["swipe_status"] == "archived"
+
+
+def test_get_posts_filters_by_platform(tmp_path: Path, monkeypatch) -> None:
+    client, conn = _build_client(tmp_path, monkeypatch)
+    with client:
+        _seed_feed_data(conn)
+
+        response = client.get(
+            "/api/posts",
+            params={"category": "Read", "swipe_status": "pending", "platform": "linkedin"},
+        )
+        assert response.status_code == 200
+
+        payload = response.json()
+        assert payload["total"] == 2
+        assert [post["classification_id"] for post in payload["posts"]] == ["cls-1", "cls-5"]
+        assert {post["platform"] for post in payload["posts"]} == {"linkedin"}
+
+
+def test_get_posts_supports_keyword_search_with_optional_platform_filter(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    client, conn = _build_client(tmp_path, monkeypatch)
+    with client:
+        _seed_feed_data(conn)
+        update_swipe_status(conn, "cls-2", "archived")
+
+        keyword_only = client.get(
+            "/api/posts",
+            params={"swipe_status": "archived", "q": "post-2"},
+        )
+        assert keyword_only.status_code == 200
+        keyword_payload = keyword_only.json()
+        assert keyword_payload["total"] == 1
+        assert keyword_payload["has_more"] is False
+        assert [post["classification_id"] for post in keyword_payload["posts"]] == ["cls-2"]
+        assert keyword_payload["posts"][0]["post_text"] == "Post text post-2"
+
+        with_platform = client.get(
+            "/api/posts",
+            params={
+                "swipe_status": "archived",
+                "q": "Post text",
+                "platform": "threads",
+            },
+        )
+        assert with_platform.status_code == 200
+        platform_payload = with_platform.json()
+        assert platform_payload["total"] == 1
+        assert platform_payload["has_more"] is False
+        assert [post["classification_id"] for post in platform_payload["posts"]] == ["cls-4"]
+        assert platform_payload["posts"][0]["platform"] == "threads"
 
 
 def test_get_posts_pagination_computes_has_more(tmp_path: Path, monkeypatch) -> None:
@@ -221,7 +279,35 @@ def test_get_post_detail_returns_post_for_valid_classification_id(tmp_path: Path
         assert payload["id"] == "post-2"
         assert payload["category"] == "Read"
         assert payload["summary"] == "Summary for cls-2"
+        assert payload["platform"] == "x"
         assert payload["swipe_status"] == "pending"
+        assert payload["note"] is None
+
+
+def test_get_post_detail_includes_note_when_present(tmp_path: Path, monkeypatch) -> None:
+    client, conn = _build_client(tmp_path, monkeypatch)
+    with client:
+        _seed_feed_data(conn)
+        conn.execute(
+            """INSERT INTO notes
+               (id, classification_id, note_text, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                "note-1",
+                "cls-2",
+                "Remember to revisit this thread tomorrow",
+                "2026-02-25T11:05:00+00:00",
+                "2026-02-25T11:05:00+00:00",
+            ),
+        )
+        conn.commit()
+
+        response = client.get("/api/posts/cls-2")
+        assert response.status_code == 200
+
+        payload = response.json()
+        assert payload["classification_id"] == "cls-2"
+        assert payload["note"] == "Remember to revisit this thread tomorrow"
 
 
 def test_get_post_detail_returns_404_for_missing_classification_id(tmp_path: Path, monkeypatch) -> None:

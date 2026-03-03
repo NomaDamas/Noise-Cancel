@@ -16,6 +16,8 @@ dependencies = [
     "pydantic-settings>=2.7.0",
     "pyyaml>=6.0.2",
     "httpx>=0.28.0",
+    "praw>=7.8.1",
+    "feedparser>=6.0.11",
     "cryptography>=44.0.0",
     "platformdirs>=4.0.0",
     "rich>=13.9.0",
@@ -39,6 +41,11 @@ noise-cancel = "noise_cancel.cli:app"
 Homepage = "https://vkehfdl1.github.io/noise-cancel/"
 Repository = "https://github.com/vkehfdl1/noise-cancel"
 Documentation = "https://vkehfdl1.github.io/noise-cancel/"
+
+[project.optional-dependencies]
+semantic = [
+    "sentence-transformers>=3.0.0",
+]
 
 [dependency-groups]
 dev = [
@@ -124,4 +131,4 @@ ignore = [
 preview = true
 
 [tool.deptry.per_rule_ignores]
-DEP002 = ["playwright", "anthropic", "pydantic-settings", "slack-sdk", "uvicorn"]
+DEP002 = ["playwright", "anthropic", "praw", "pydantic-settings", "sentence-transformers", "slack-sdk", "uvicorn"]

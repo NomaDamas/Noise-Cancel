@@ -5,7 +5,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from noise_cancel.logger.repository import get_post_for_feed_by_classification_id, update_swipe_status
+from noise_cancel.logger.repository import (
+    get_post_for_feed_by_classification_id,
+    record_feedback_for_classification,
+    update_swipe_status,
+)
 from server.dependencies import get_db
 from server.schemas import ArchivePostResponse, DeleteResponse
 
@@ -20,8 +24,12 @@ def archive_post(
     post = get_post_for_feed_by_classification_id(conn=db, classification_id=classification_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Not found")
+    if post["swipe_status"] != "pending":
+        raise HTTPException(status_code=409, detail="Post already processed")
 
-    update_swipe_status(conn=db, classification_id=classification_id, status="archived")
+    update_swipe_status(conn=db, classification_id=classification_id, status="archived", commit=False)
+    record_feedback_for_classification(conn=db, classification_id=classification_id, action="archive", commit=False)
+    db.commit()
 
     return ArchivePostResponse(
         status="archived",
@@ -42,7 +50,11 @@ def delete_post(
     post = get_post_for_feed_by_classification_id(conn=db, classification_id=classification_id)
     if post is None:
         raise HTTPException(status_code=404, detail="Not found")
+    if post["swipe_status"] != "pending":
+        raise HTTPException(status_code=409, detail="Post already processed")
 
-    update_swipe_status(conn=db, classification_id=classification_id, status="deleted")
+    update_swipe_status(conn=db, classification_id=classification_id, status="deleted", commit=False)
+    record_feedback_for_classification(conn=db, classification_id=classification_id, action="delete", commit=False)
+    db.commit()
 
     return DeleteResponse(status="deleted", classification_id=classification_id)

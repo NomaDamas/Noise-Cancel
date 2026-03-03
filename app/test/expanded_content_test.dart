@@ -2,15 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noise_cancel_app/models/post.dart';
+import 'package:noise_cancel_app/services/share_service.dart';
 import 'package:noise_cancel_app/widgets/expanded_content.dart';
 
 Post _buildPost({
   double confidence = 0.95,
   String postText = 'This is the full post body text',
+  String? note,
 }) {
   return Post(
     id: 'post-1',
     classificationId: 'cls-1',
+    platform: 'linkedin',
     authorName: 'Jane Doe',
     authorUrl: 'https://linkedin.com/in/jane',
     postUrl: 'https://linkedin.com/posts/post-1',
@@ -21,15 +24,33 @@ Post _buildPost({
     reasoning: 'Relevant to interests',
     classifiedAt: '2026-02-25T10:00:00+00:00',
     swipeStatus: 'pending',
+    note: note,
   );
 }
 
-Future<void> _pumpExpandedContent(WidgetTester tester, Post post) async {
+class FakeShareService implements ShareService {
+  final List<Post> sharedPosts = <Post>[];
+
+  @override
+  Future<void> sharePost(Post post) async {
+    sharedPosts.add(post);
+  }
+}
+
+Future<void> _pumpExpandedContent(
+  WidgetTester tester,
+  Post post, {
+  ShareService? shareService,
+}) async {
+  final resolvedShareService = shareService ?? const NativeShareService();
   await tester.pumpWidget(
     MaterialApp(
       theme: ThemeData.dark(),
       home: Scaffold(
-        body: ExpandedContent(post: post),
+        body: ExpandedContent(
+          post: post,
+          shareService: resolvedShareService,
+        ),
       ),
     ),
   );
@@ -118,5 +139,23 @@ void main() {
     });
 
     expect(hasDarkContainer, isTrue);
+  });
+
+  testWidgets('shows share button and forwards post to share service',
+      (WidgetTester tester) async {
+    final shareService = FakeShareService();
+    await _pumpExpandedContent(
+      tester,
+      _buildPost(note: 'Worth sharing'),
+      shareService: shareService,
+    );
+
+    expect(find.byKey(const Key('expanded-share-button')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('expanded-share-button')));
+    await tester.pump();
+
+    expect(shareService.sharedPosts, hasLength(1));
+    expect(shareService.sharedPosts.single.note, 'Worth sharing');
   });
 }

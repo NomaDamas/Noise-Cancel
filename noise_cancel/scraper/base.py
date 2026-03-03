@@ -14,3 +14,9 @@ class AbstractScraper(ABC):
 
     @abstractmethod
     async def close(self) -> None: ...
+
+    def session_age_days(self) -> float | None:
+        return None
+
+    def session_expires_in_days(self) -> float | None:
+        return None

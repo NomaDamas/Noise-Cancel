@@ -19,7 +19,7 @@ def test_apply_migrations(tmp_path):
 
     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     tables = {row[0] for row in cursor.fetchall()}
-    expected = {"posts", "classifications", "run_logs"}
+    expected = {"posts", "classifications", "run_logs", "embeddings", "notes", "feedback"}
     assert expected.issubset(tables)
     conn.close()
 
@@ -86,8 +86,34 @@ def test_apply_migrations_tracks_latest_migration(tmp_path):
     apply_migrations(conn)
 
     applied = {row[0] for row in conn.execute("SELECT name FROM _migrations").fetchall()}
-    assert "004_add_content_hash.sql" in applied
+    assert "008_add_feedback.sql" in applied
     conn.close()
+
+
+def test_embeddings_table_columns(db_connection):
+    cursor = db_connection.execute("PRAGMA table_info(embeddings)")
+    columns = {row[1] for row in cursor.fetchall()}
+    assert columns == {"post_id", "vector", "model", "created_at"}
+
+
+def test_notes_table_columns(db_connection):
+    cursor = db_connection.execute("PRAGMA table_info(notes)")
+    columns = {row[1] for row in cursor.fetchall()}
+    assert columns == {"id", "classification_id", "note_text", "created_at", "updated_at"}
+
+
+def test_feedback_table_columns(db_connection):
+    cursor = db_connection.execute("PRAGMA table_info(feedback)")
+    columns = {row[1] for row in cursor.fetchall()}
+    assert columns == {
+        "id",
+        "classification_id",
+        "action",
+        "platform",
+        "category",
+        "confidence",
+        "created_at",
+    }
 
 
 def test_posts_content_hash_index_unique_allows_null(db_connection):
@@ -112,4 +138,12 @@ def test_posts_content_hash_index_unique_allows_null(db_connection):
             "INSERT INTO posts (id, platform, author_name, post_text, scraped_at, content_hash)"
             " VALUES (?, ?, ?, ?, ?, ?)",
             ("p4", "linkedin", "Dave", "D", "2025-01-01T00:00:00", "same-hash"),
+        )
+
+
+def test_posts_platform_rejects_unknown_value(db_connection):
+    with pytest.raises(sqlite3.IntegrityError):
+        db_connection.execute(
+            "INSERT INTO posts (id, platform, author_name, post_text, scraped_at) VALUES (?, ?, ?, ?, ?)",
+            ("bad-platform-post", "myspace", "Eve", "Invalid platform", "2025-01-01T00:00:00"),
         )

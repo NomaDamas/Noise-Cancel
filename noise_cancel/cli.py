@@ -32,6 +32,7 @@ def _metric_value(run_type: str, metric: str, value: int) -> int | None:
         "scrape": {"posts_scraped"},
         "classify": {"posts_classified"},
         "deliver": {"posts_delivered"},
+        "digest": {"posts_delivered"},
         "pipeline": {"posts_scraped", "posts_classified", "posts_delivered"},
     }
     if metric not in applicable_metrics.get(run_type, set()):
@@ -171,6 +172,52 @@ def _render_stats_output(payload: dict, limit_posts: int) -> None:
         console.print("No classification details found for this run.")
 
 
+def _render_feedback_breakdown(title: str, rows: list[dict], label_key: str) -> None:
+    table = Table(title=title)
+    table.add_column(label_key)
+    table.add_column("archive", justify="right")
+    table.add_column("delete", justify="right")
+    table.add_column("total", justify="right")
+    table.add_column("archive_ratio", justify="right")
+    table.add_column("delete_ratio", justify="right")
+    for row in rows:
+        table.add_row(
+            row[label_key],
+            str(row["archive_count"]),
+            str(row["delete_count"]),
+            str(row["total"]),
+            f"{row['archive_ratio']:.3f}",
+            f"{row['delete_ratio']:.3f}",
+        )
+    console.print(table)
+
+
+def _render_feedback_stats_output(payload: dict) -> None:
+    total_feedback = payload["total_feedback"]
+    console.print(f"Total Feedback: {total_feedback}")
+    if total_feedback == 0:
+        console.print("No feedback records found.")
+        return
+
+    _render_feedback_breakdown("Archive/Delete Ratio by Platform", payload["by_platform"], "platform")
+    _render_feedback_breakdown("Archive/Delete Ratio by Category", payload["by_category"], "category")
+
+    overrides = payload["override_confidence"]
+    console.print(f"Override Count: {overrides['total_overrides']}")
+    avg_confidence = overrides["average_confidence"]
+    if avg_confidence is None:
+        console.print("Average Override Confidence: -")
+    else:
+        console.print(f"Average Override Confidence: {avg_confidence:.3f}")
+
+    distribution_table = Table(title='Override Confidence Distribution (delete "Read" or archive "Skip")')
+    distribution_table.add_column("bucket")
+    distribution_table.add_column("count", justify="right")
+    for row in overrides["distribution"]:
+        distribution_table.add_row(row["bucket"], str(row["count"]))
+    console.print(distribution_table)
+
+
 @app.command()
 def init(
     config_path: str | None = typer.Option(None, "--config", help="Path to write config YAML"),
@@ -198,36 +245,50 @@ def config(
 @app.command()
 def login(
     config_path: str | None = typer.Option(None, "--config", help="Path to config YAML"),
+    platform: str = typer.Option("linkedin", "--platform", help="Platform to login to"),
 ) -> None:
-    """Open browser for manual LinkedIn login and save session cookies."""
+    """Open browser for manual platform login and save session cookies."""
     import asyncio
+
+    from noise_cancel.scraper import SCRAPER_REGISTRY
 
     cfg = _get_config(config_path)
     data_dir = Path(cfg.general["data_dir"])
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    console.print("[cyan]Opening browser for LinkedIn login...[/cyan]")
+    try:
+        scraper_class = SCRAPER_REGISTRY.get(platform)
+    except KeyError:
+        available = ", ".join(sorted(SCRAPER_REGISTRY.mappings().keys()))
+        console.print(f"[red]Unknown platform '{platform}'. Available: {available}[/red]")
+        raise typer.Exit(1) from None
+
+    console.print(f"[cyan]Opening browser for {platform} login...[/cyan]")
     console.print("[cyan]Please log in manually. Waiting up to 5 minutes...[/cyan]")
 
-    from noise_cancel.scraper.linkedin import LinkedInScraper
-
-    scraper = LinkedInScraper(cfg)
+    scraper = scraper_class(cfg)  # type: ignore[call-arg]
     try:
         asyncio.run(scraper.login(headed=True))
     except KeyboardInterrupt:
         console.print("\n[yellow]Login cancelled.[/yellow]")
         raise typer.Exit(1) from None
 
-    storage_state = scraper.storage_state
+    storage_state = getattr(scraper, "storage_state", None)
     if storage_state is None:
-        console.print("[red]Login failed — no session captured.[/red]")
-        raise typer.Exit(1)
+        console.print(f"[green]Login for {platform} completed.[/green]")
+        return
 
     from noise_cancel.scraper.auth import generate_key, save_session
 
-    key_path = data_dir / "session.key"
-    session_path = data_dir / "session.enc"
+    # Use platform-specific session paths if available, else fall back to default
+    session_paths_fn = getattr(scraper, "_session_paths", None)
+    if session_paths_fn is not None:
+        key_path, session_path = session_paths_fn()
+    else:
+        key_path = data_dir / "session.key"
+        session_path = data_dir / "session.enc"
 
+    key_path.parent.mkdir(parents=True, exist_ok=True)
     if key_path.exists():
         key = key_path.read_text().strip()
     else:
@@ -242,82 +303,93 @@ def login(
 
 
 @app.command()
-def scrape(
+def scrape(  # noqa: C901
     config_path: str | None = typer.Option(None, "--config"),
     verbose: bool = typer.Option(False, "--verbose"),
     limit: int | None = typer.Option(None, "--limit", help="Max posts to save (overrides config)"),
+    platform: str | None = typer.Option(None, "--platform", help="Platform to scrape (default: all enabled)"),
 ) -> None:
-    """Scrape LinkedIn feed posts."""
+    """Scrape feed posts from one or all enabled platforms."""
     import asyncio
-    import sqlite3
     import uuid
 
     from noise_cancel.content_hash import compute_content_hash
     from noise_cancel.logger.repository import insert_post, insert_run_log, update_run_log
     from noise_cancel.models import RunLog
-    from noise_cancel.scraper.auth import is_session_valid, load_session
-    from noise_cancel.scraper.linkedin import LinkedInScraper
+    from noise_cancel.scraper import SCRAPER_REGISTRY
 
     cfg = _get_config(config_path)
-    data_dir = Path(cfg.general["data_dir"])
     conn = _get_db(cfg)
 
     run_id = uuid.uuid4().hex
     run_log = RunLog(id=run_id, run_type="scrape")
     insert_run_log(conn, run_log)
 
-    key_path = data_dir / "session.key"
-    session_path = data_dir / "session.enc"
-    ttl_days = cfg.scraper.get("session_ttl_days", 7)
-
-    if not session_path.exists() or not key_path.exists():
-        console.print("[red]No session found. Run 'noise-cancel login' first.[/red]")
-        update_run_log(conn, run_id, status="error", error_message="No session found")
-        raise typer.Exit(1)
-
-    if not is_session_valid(str(session_path), ttl_days=ttl_days):
-        console.print("[red]Session expired. Run 'noise-cancel login' to refresh.[/red]")
-        update_run_log(conn, run_id, status="error", error_message="Session expired")
-        raise typer.Exit(1)
-
-    key = key_path.read_text().strip()
-    session_data = load_session(key, str(session_path))
-    if session_data is None:
-        console.print("[red]Failed to decrypt session. Run 'noise-cancel login' again.[/red]")
-        update_run_log(conn, run_id, status="error", error_message="Decryption failed")
-        raise typer.Exit(1)
-
-    scraper = LinkedInScraper(cfg)
-    scraper.load_storage_state(session_data)
+    # Determine which platforms to scrape
+    if platform is not None:
+        platform_names = [platform.strip().lower()]
+    else:
+        # Use enabled platforms from config, defaulting to ["linkedin"] for backward compat
+        platforms_cfg = cfg.scraper.get("platforms", {})
+        if isinstance(platforms_cfg, dict) and platforms_cfg:
+            platform_names = list(platforms_cfg.keys())
+        else:
+            platform_names = ["linkedin"]
 
     scroll_count = cfg.scraper.get("scroll_count", 10)
-    if verbose:
-        console.print(f"[cyan]Scraping with {scroll_count} scrolls...[/cyan]")
-
-    try:
-        posts = asyncio.run(scraper.scrape_feed(scroll_count=scroll_count))
-    except RuntimeError as exc:
-        console.print(f"[red]Scrape failed: {exc}[/red]")
-        update_run_log(conn, run_id, status="error", error_message=str(exc))
-        raise typer.Exit(1) from None
-
     max_posts = limit if limit is not None else cfg.general.get("max_posts_per_run", 50)
-    posts = posts[:max_posts]
 
-    saved = 0
-    dupes = 0
-    for post in posts:
-        post.run_id = run_id
-        post.content_hash = compute_content_hash(post.post_text)
+    total_saved = 0
+    total_dupes = 0
+
+    for plat_name in platform_names:
         try:
-            insert_post(conn, post)
-            saved += 1
-        except sqlite3.IntegrityError:
-            dupes += 1
+            scraper_class = SCRAPER_REGISTRY.get(plat_name)
+        except KeyError:
+            console.print(f"[yellow]Skipping unknown platform '{plat_name}'.[/yellow]")
+            continue
 
-    update_run_log(conn, run_id, status="completed", posts_scraped=saved)
+        scraper = scraper_class(cfg)  # type: ignore[call-arg]
 
-    console.print(f"[green]Scraped {saved} posts ({dupes} duplicates skipped).[/green]")
+        if verbose:
+            console.print(f"[cyan]Scraping {plat_name} with {scroll_count} scrolls...[/cyan]")
+
+        try:
+            posts = asyncio.run(scraper.scrape_feed(scroll_count=scroll_count))
+        except RuntimeError as exc:
+            console.print(f"[red]Scrape failed for {plat_name}: {exc}[/red]")
+            if len(platform_names) == 1:
+                update_run_log(conn, run_id, status="error", error_message=str(exc))
+                raise typer.Exit(1) from None
+            continue
+        except Exception as exc:
+            console.print(f"[red]Scrape failed for {plat_name}: {exc}[/red]")
+            if len(platform_names) == 1:
+                update_run_log(conn, run_id, status="error", error_message=str(exc))
+                raise typer.Exit(1) from None
+            continue
+
+        posts = posts[:max_posts]
+
+        saved = 0
+        dupes = 0
+        for post in posts:
+            post.run_id = run_id
+            post.content_hash = compute_content_hash(post.post_text)
+            if insert_post(conn, post):
+                saved += 1
+            else:
+                dupes += 1
+
+        total_saved += saved
+        total_dupes += dupes
+
+        if verbose:
+            console.print(f"[cyan]{plat_name}: {saved} saved, {dupes} dupes[/cyan]")
+
+    update_run_log(conn, run_id, status="completed", posts_scraped=total_saved)
+
+    console.print(f"[green]Scraped {total_saved} posts ({total_dupes} duplicates skipped).[/green]")
     if verbose:
         console.print(f"Run ID: {run_id}")
 
@@ -355,12 +427,31 @@ def classify(
         return
 
     posts = [Post(**row) for row in rows]
+    posts_for_classification = posts
+
+    semantic_dedup_cfg = cfg.dedup.get("semantic", {})
+    if bool(semantic_dedup_cfg.get("enabled", False)):
+        from noise_cancel.dedup.embedder import create_embedder_from_config
+        from noise_cancel.dedup.semantic import ClaudeDuplicateVerifier, SemanticDeduplicator
+
+        deduplicator = SemanticDeduplicator(
+            conn=conn,
+            config=cfg,
+            embedder=create_embedder_from_config(cfg),
+            verifier=ClaudeDuplicateVerifier(cfg).verify,
+        )
+        posts_for_classification = deduplicator.deduplicate(posts_for_classification)
+
+        if not posts_for_classification:
+            update_run_log(conn, run_id, status="completed", posts_classified=0)
+            console.print("No non-duplicate posts remaining after semantic dedup.")
+            return
 
     try:
         from noise_cancel.classifier.engine import ClassificationEngine
 
         engine = ClassificationEngine(cfg)
-        results = engine.classify_posts(posts)
+        results = engine.classify_posts(posts_for_classification)
     except Exception as exc:
         console.print(f"[red]Classification failed: {exc}[/red]")
         update_run_log(conn, run_id, status="error", error_message=str(exc))
@@ -371,7 +462,7 @@ def classify(
     for pc in results:
         cls = Classification(
             id=uuid.uuid4().hex,
-            post_id=posts[pc.post_index].id,
+            post_id=posts_for_classification[pc.post_index].id,
             category=pc.category,
             confidence=pc.confidence,
             reasoning=pc.reasoning,
@@ -380,7 +471,7 @@ def classify(
             model_used=model_used,
         )
         if dry_run:
-            console.print(f"  [{cls.category}] {posts[pc.post_index].author_name}: {cls.reasoning}")
+            console.print(f"  [{cls.category}] {posts_for_classification[pc.post_index].author_name}: {cls.reasoning}")
         else:
             insert_classification(conn, cls)
 
@@ -459,10 +550,12 @@ def _included_delivery_categories(cfg: AppConfig) -> set[str]:
 @app.command()
 def deliver(
     config_path: str | None = typer.Option(None, "--config"),
+    digest: bool = typer.Option(False, "--digest", help="Also generate and deliver daily digest."),
 ) -> None:
     """Deliver classified posts via configured delivery plugins."""
     import uuid
 
+    from noise_cancel.digest.service import generate_and_deliver_digest
     from noise_cancel.logger.repository import (
         get_undelivered_classifications,
         insert_run_log,
@@ -495,9 +588,61 @@ def deliver(
     update_run_log(conn, run_id, status="completed", posts_delivered=delivered_count)
     console.print(f"[green]Delivered {delivered_count} posts.[/green]")
 
+    if not digest:
+        return
+
+    try:
+        digest_result = generate_and_deliver_digest(conn, cfg)
+    except Exception as exc:
+        console.print(f"[red]Digest generation failed: {exc}[/red]")
+        return
+    console.print(digest_result.digest_text)
+    if digest_result.delivery_enabled:
+        console.print(f"Delivered digest to {digest_result.delivered_plugins} plugin(s).")
+    else:
+        console.print("Digest delivery is disabled in config (delivery.digest.enabled=false).")
+
 
 @app.command()
-def run(
+def digest(
+    config_path: str | None = typer.Option(None, "--config"),
+) -> None:
+    """Generate and deliver the daily cross-platform digest."""
+    import uuid
+
+    from noise_cancel.digest.service import generate_and_deliver_digest
+    from noise_cancel.logger.repository import insert_run_log, update_run_log
+    from noise_cancel.models import RunLog
+
+    cfg = _get_config(config_path)
+    conn = _get_db(cfg)
+
+    run_id = uuid.uuid4().hex
+    run_log = RunLog(id=run_id, run_type="digest")
+    insert_run_log(conn, run_log)
+
+    try:
+        digest_result = generate_and_deliver_digest(conn, cfg)
+    except Exception as exc:
+        update_run_log(conn, run_id, status="error", error_message=str(exc))
+        console.print(f"[red]Digest generation failed: {exc}[/red]")
+        raise typer.Exit(1) from None
+
+    update_run_log(
+        conn,
+        run_id,
+        status="completed",
+        posts_delivered=digest_result.delivered_plugins,
+    )
+    console.print(digest_result.digest_text)
+    if digest_result.delivery_enabled:
+        console.print(f"Delivered digest to {digest_result.delivered_plugins} plugin(s).")
+    else:
+        console.print("Digest delivery is disabled in config (delivery.digest.enabled=false).")
+
+
+@app.command()
+def run(  # noqa: C901
     config_path: str | None = typer.Option(None, "--config"),
     verbose: bool = typer.Option(False, "--verbose"),
     dry_run: bool = typer.Option(False, "--dry-run"),
@@ -506,7 +651,7 @@ def run(
     """Run full pipeline: scrape -> classify -> deliver."""
     import uuid
 
-    from noise_cancel.logger.repository import insert_run_log, update_run_log
+    from noise_cancel.logger.repository import get_run_logs, insert_run_log, update_run_log
     from noise_cancel.models import RunLog
 
     cfg = _get_config(config_path)
@@ -519,11 +664,11 @@ def run(
     console.print("[cyan]Pipeline: scrape -> classify -> deliver[/cyan]")
 
     steps = [
-        ("scrape", lambda: scrape(config_path=config_path, verbose=verbose, limit=limit)),
+        ("scrape", lambda: scrape(config_path=config_path, verbose=verbose, limit=limit, platform=None)),
         ("classify", lambda: classify(config_path=config_path, dry_run=dry_run, limit=limit)),
     ]
     if not dry_run:
-        steps.append(("deliver", lambda: deliver(config_path=config_path)))
+        steps.append(("deliver", lambda: deliver(config_path=config_path, digest=False)))
 
     for step_name, step_fn in steps:
         try:
@@ -534,7 +679,30 @@ def run(
                 console.print(f"[red]Pipeline stopped at {step_name}.[/red]")
                 raise typer.Exit(1) from None
 
-    update_run_log(conn, run_id, status="completed")
+    # Aggregate metrics from child run_logs into the pipeline run_log
+    child_runs = get_run_logs(conn, limit=10)
+    posts_scraped = 0
+    posts_classified = 0
+    for cr in child_runs:
+        if cr["id"] == run_id:
+            continue
+        if cr.get("run_type") == "scrape":
+            posts_scraped += cr.get("posts_scraped", 0) or 0
+            break
+    for cr in child_runs:
+        if cr["id"] == run_id:
+            continue
+        if cr.get("run_type") == "classify":
+            posts_classified += cr.get("posts_classified", 0) or 0
+            break
+
+    update_run_log(
+        conn,
+        run_id,
+        status="completed",
+        posts_scraped=posts_scraped,
+        posts_classified=posts_classified,
+    )
     console.print("[green]Pipeline complete.[/green]")
 
 
@@ -613,3 +781,22 @@ def stats(
         return
 
     _render_stats_output(payload, limit_posts)
+
+
+@app.command("feedback-stats")
+def feedback_stats(
+    config_path: str | None = typer.Option(None, "--config"),
+    as_json: bool = typer.Option(False, "--json", help="Output as JSON"),
+) -> None:
+    """Show swipe feedback accumulation statistics."""
+    from noise_cancel.logger.repository import get_feedback_stats
+
+    cfg = _get_config(config_path)
+    conn = _get_db(cfg)
+    payload = get_feedback_stats(conn)
+
+    if as_json:
+        typer.echo(json.dumps(payload, indent=2))
+        return
+
+    _render_feedback_stats_output(payload)

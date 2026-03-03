@@ -7,7 +7,7 @@ import httpx
 
 from noise_cancel.config import AppConfig
 from noise_cancel.delivery.base import DeliveryPlugin
-from noise_cancel.delivery.blocks import build_post_blocks
+from noise_cancel.delivery.blocks import build_digest_blocks, build_post_blocks
 from noise_cancel.models import Classification, Post
 
 
@@ -24,6 +24,14 @@ class SlackPlugin(DeliveryPlugin):
     ) -> int:
         return deliver_posts(posts, config)
 
+    def deliver_digest(
+        self,
+        digest_text: str,
+        config: AppConfig,
+        plugin_config: dict[str, Any],
+    ) -> bool:
+        return deliver_digest_text(digest_text, config, plugin_config)
+
     def validate_config(self, config: dict[str, Any]) -> None:
         webhook_url = config.get("webhook_url")
         if isinstance(webhook_url, str) and webhook_url.strip():
@@ -33,6 +41,17 @@ class SlackPlugin(DeliveryPlugin):
             return
 
         raise SlackWebhookConfigError()
+
+    def notify(
+        self,
+        message: str,
+        config: AppConfig,
+        plugin_config: dict[str, Any],
+    ) -> bool:
+        webhook_url = _resolve_webhook_url(config, plugin_config)
+        if not webhook_url:
+            return False
+        return send_to_slack(webhook_url, [], text=message)
 
 
 def send_to_slack(webhook_url: str, blocks: list[dict], text: str = "") -> bool:
@@ -47,6 +66,40 @@ def send_to_slack(webhook_url: str, blocks: list[dict], text: str = "") -> bool:
         return False
     else:
         return response.status_code == 200
+
+
+def _resolve_webhook_url(
+    config: AppConfig,
+    plugin_config: dict[str, Any],
+) -> str | None:
+    slack_config = config.delivery.get("slack", {})
+    plugin_webhook = plugin_config.get("webhook_url")
+    if isinstance(plugin_webhook, str) and plugin_webhook.strip():
+        return plugin_webhook
+
+    configured_webhook = slack_config.get("webhook_url")
+    if isinstance(configured_webhook, str) and configured_webhook.strip():
+        return configured_webhook
+
+    env_webhook = os.environ.get("SLACK_WEBHOOK_URL")
+    if isinstance(env_webhook, str) and env_webhook.strip():
+        return env_webhook
+
+    return None
+
+
+def deliver_digest_text(
+    digest_text: str,
+    config: AppConfig,
+    plugin_config: dict[str, Any],
+) -> bool:
+    webhook_url = _resolve_webhook_url(config, plugin_config)
+    if not webhook_url:
+        return False
+
+    blocks = build_digest_blocks(digest_text)
+    fallback_text = next((line.strip() for line in digest_text.splitlines() if line.strip()), "Daily Feed Digest")
+    return send_to_slack(webhook_url, blocks, text=fallback_text)
 
 
 def deliver_posts(

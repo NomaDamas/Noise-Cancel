@@ -7,10 +7,14 @@ import 'package:noise_cancel_app/services/api_service.dart';
 import 'package:noise_cancel_app/services/second_brain_service.dart';
 import 'package:noise_cancel_app/widgets/post_card.dart';
 
-Post _buildPost(int index) {
+Post _buildPost(
+  int index, {
+  String? note,
+}) {
   return Post(
     id: 'post-$index',
     classificationId: 'cls-$index',
+    platform: 'linkedin',
     authorName: 'Author $index',
     authorUrl: 'https://linkedin.com/in/author-$index',
     postUrl: 'https://linkedin.com/posts/post-$index',
@@ -21,6 +25,7 @@ Post _buildPost(int index) {
     reasoning: 'Relevant',
     classifiedAt: '2026-02-25T10:00:00+00:00',
     swipeStatus: 'pending',
+    note: note,
   );
 }
 
@@ -29,29 +34,36 @@ class FakeApiService extends ApiService {
     required this.responsesByOffset,
     required this.events,
     Map<String, dynamic>? archiveResponse,
-  }) : _archiveResponse =
-           archiveResponse ??
-           <String, dynamic>{
-             'classification_id': 'cls-0',
-             'author_name': 'Author 0',
-             'summary': 'Summary 0',
-             'post_url': 'https://linkedin.com/posts/post-0',
-             'post_text': 'Full post text 0',
-             'category': 'Read',
-           },
-       super(baseUrl: 'http://localhost:8012');
+    this.archivedCount = 0,
+  })  : _archiveResponse = archiveResponse ??
+            <String, dynamic>{
+              'classification_id': 'cls-0',
+              'author_name': 'Author 0',
+              'summary': 'Summary 0',
+              'post_url': 'https://linkedin.com/posts/post-0',
+              'post_text': 'Full post text 0',
+              'category': 'Read',
+            },
+        super(baseUrl: 'http://localhost:8012');
 
   final Map<int, List<Post>> responsesByOffset;
   final List<String> events;
   final Map<String, dynamic> _archiveResponse;
+  final int archivedCount;
   final List<int> requestedOffsets = <int>[];
   final List<String> archivedIds = <String>[];
   final List<String> deletedIds = <String>[];
+  final List<Map<String, String>> noteSaves = <Map<String, String>>[];
+  final List<Map<String, Object?>> pageRequests = <Map<String, Object?>>[];
 
   @override
   Future<List<Post>> fetchPosts({
     int limit = 20,
     int offset = 0,
+    String category = 'Read',
+    String swipeStatus = 'pending',
+    String? platform,
+    String? query,
   }) async {
     requestedOffsets.add(offset);
     return List<Post>.of(responsesByOffset[offset] ?? <Post>[]);
@@ -68,6 +80,40 @@ class FakeApiService extends ApiService {
   Future<void> deletePost(String classificationId) async {
     events.add('delete');
     deletedIds.add(classificationId);
+  }
+
+  @override
+  Future<String?> saveNote(String classificationId, String noteText) async {
+    events.add('save-note');
+    noteSaves.add(<String, String>{
+      'classificationId': classificationId,
+      'note': noteText,
+    });
+    return noteText;
+  }
+
+  @override
+  Future<PostPage> fetchPostPage({
+    int limit = 20,
+    int offset = 0,
+    String category = 'Read',
+    String swipeStatus = 'pending',
+    String? platform,
+    String? query,
+  }) async {
+    pageRequests.add(<String, Object?>{
+      'limit': limit,
+      'offset': offset,
+      'category': category,
+      'swipeStatus': swipeStatus,
+      'platform': platform,
+      'query': query,
+    });
+    return PostPage(
+      posts: <Post>[],
+      total: archivedCount,
+      hasMore: false,
+    );
   }
 }
 
@@ -97,6 +143,7 @@ Future<void> _pumpScreen(
   required FakeSecondBrainService secondBrainService,
   CardSwiperController? controller,
   WidgetBuilder? settingsScreenBuilder,
+  WidgetBuilder? archiveScreenBuilder,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -106,6 +153,7 @@ Future<void> _pumpScreen(
         secondBrainService: secondBrainService,
         swiperController: controller,
         settingsScreenBuilder: settingsScreenBuilder,
+        archiveScreenBuilder: archiveScreenBuilder,
       ),
     ),
   );
@@ -122,7 +170,8 @@ void main() {
       },
       events: events,
     );
-    final secondBrainService = FakeSecondBrainService(enabled: true, events: events);
+    final secondBrainService =
+        FakeSecondBrainService(enabled: true, events: events);
 
     await _pumpScreen(
       tester,
@@ -154,7 +203,8 @@ void main() {
       events: events,
       archiveResponse: archivePayload,
     );
-    final secondBrainService = FakeSecondBrainService(enabled: true, events: events);
+    final secondBrainService =
+        FakeSecondBrainService(enabled: true, events: events);
 
     await _pumpScreen(
       tester,
@@ -167,7 +217,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(apiService.archivedIds, <String>['cls-0']);
-    expect(secondBrainService.forwardedPayloads, <Map<String, dynamic>>[archivePayload]);
+    expect(secondBrainService.forwardedPayloads,
+        <Map<String, dynamic>>[archivePayload]);
     expect(events, <String>['archive', 'forward']);
   });
 
@@ -180,7 +231,8 @@ void main() {
       },
       events: events,
     );
-    final secondBrainService = FakeSecondBrainService(enabled: false, events: events);
+    final secondBrainService =
+        FakeSecondBrainService(enabled: false, events: events);
 
     await _pumpScreen(
       tester,
@@ -210,7 +262,8 @@ void main() {
       },
       events: events,
     );
-    final secondBrainService = FakeSecondBrainService(enabled: false, events: events);
+    final secondBrainService =
+        FakeSecondBrainService(enabled: false, events: events);
 
     await _pumpScreen(
       tester,
@@ -239,7 +292,8 @@ void main() {
       },
       events: events,
     );
-    final secondBrainService = FakeSecondBrainService(enabled: false, events: events);
+    final secondBrainService =
+        FakeSecondBrainService(enabled: false, events: events);
 
     await _pumpScreen(
       tester,
@@ -250,7 +304,8 @@ void main() {
     expect(find.text('All caught up!'), findsOneWidget);
   });
 
-  testWidgets('app bar shows title and settings icon navigates to settings screen',
+  testWidgets(
+      'app bar shows title, archive button with count, and settings navigation',
       (tester) async {
     final events = <String>[];
     final apiService = FakeApiService(
@@ -258,8 +313,10 @@ void main() {
         0: <Post>[_buildPost(0)],
       },
       events: events,
+      archivedCount: 7,
     );
-    final secondBrainService = FakeSecondBrainService(enabled: false, events: events);
+    final secondBrainService =
+        FakeSecondBrainService(enabled: false, events: events);
 
     await _pumpScreen(
       tester,
@@ -268,10 +325,23 @@ void main() {
       settingsScreenBuilder: (_) => const Scaffold(
         body: Center(child: Text('Mock Settings Screen')),
       ),
+      archiveScreenBuilder: (_) => const Scaffold(
+        body: Center(child: Text('Mock Archive Screen')),
+      ),
     );
 
     expect(find.text('NoiseCancel'), findsOneWidget);
+    expect(find.byKey(const Key('open-archive-button')), findsOneWidget);
+    expect(find.byIcon(Icons.archive_outlined), findsOneWidget);
+    expect(find.text('7'), findsOneWidget);
     expect(find.byIcon(Icons.settings), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('open-archive-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('Mock Archive Screen'), findsOneWidget);
+
+    Navigator.of(tester.element(find.text('Mock Archive Screen'))).pop();
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.settings));
     await tester.pumpAndSettle();
@@ -343,5 +413,47 @@ void main() {
 
     expect(find.byType(PostCard), findsWidgets);
     expect(find.text('All caught up!'), findsNothing);
+  });
+
+  testWidgets('long-press opens note sheet and saves note to server', (tester) async {
+    final events = <String>[];
+    final apiService = FakeApiService(
+      responsesByOffset: <int, List<Post>>{
+        0: <Post>[_buildPost(0)],
+      },
+      events: events,
+    );
+    final secondBrainService =
+        FakeSecondBrainService(enabled: false, events: events);
+
+    await _pumpScreen(
+      tester,
+      apiService: apiService,
+      secondBrainService: secondBrainService,
+    );
+
+    await tester.longPress(find.byType(PostCard).first);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('note-input-field')), findsOneWidget);
+    expect(find.byKey(const Key('note-save-button')), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const Key('note-input-field')),
+      'Investigate this in Friday review',
+    );
+    await tester.tap(find.byKey(const Key('note-save-button')));
+    await tester.pumpAndSettle();
+
+    expect(
+      apiService.noteSaves,
+      <Map<String, String>>[
+        <String, String>{
+          'classificationId': 'cls-0',
+          'note': 'Investigate this in Friday review',
+        }
+      ],
+    );
+    expect(find.text('📝'), findsOneWidget);
   });
 }
