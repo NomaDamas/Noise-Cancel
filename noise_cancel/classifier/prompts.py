@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -13,34 +14,15 @@ def build_system_prompt(
     language: str = "english",
 ) -> str:
     lines = [
-        "You are a LinkedIn feed classifier. Classify each post into exactly one category.",
+        "You are a social media feed classifier. Classify each post into exactly one category.",
         "",
         "## Categories",
     ]
     for cat in categories:
         lines.append(f"- **{cat['name']}**: {cat['description']}")
 
-    wl = whitelist or {}
-    bl = blacklist or {}
-    has_wl = any(wl.get(k) for k in ("keywords", "authors"))
-    has_bl = any(bl.get(k) for k in ("keywords", "authors"))
-
-    if has_wl or has_bl:
-        lines.append("")
-        lines.append("## Override Rules")
-        if has_wl:
-            lines.append("Always classify as **Read** if:")
-            if wl.get("keywords"):
-                lines.append(f"- Post text contains any of: {wl['keywords']}")
-            if wl.get("authors"):
-                lines.append(f"- Author is any of: {wl['authors']}")
-        if has_bl:
-            lines.append("Always classify as **Skip** if:")
-            if bl.get("keywords"):
-                lines.append(f"- Post text contains any of: {bl['keywords']}")
-            if bl.get("authors"):
-                lines.append(f"- Author is any of: {bl['authors']}")
-        lines.append("If both whitelist and blacklist match, classify as **Read**.")
+    # Kept for backward compatibility with call sites that may still pass these.
+    _ = whitelist, blacklist
 
     lines.append("")
     lines.append("## Examples")
@@ -67,6 +49,23 @@ def build_system_prompt(
     lines.append("**Author**: Growth Guru")
     lines.append("**Classification**: Skip (confidence: 0.85)")
     lines.append("**Reasoning**: Clickbait thread format with exaggerated productivity claims.")
+    lines.append("")
+    lines.append(
+        '**Post**: "[r/MachineLearning] We benchmarked LoRA vs full fine-tuning on Llama 3 '
+        "across 8 downstream tasks. LoRA matched full FT on 6/8 while using 12x less memory. "
+        'Code + results in repo."'
+    )
+    lines.append("**Author**: u/ml_researcher_42")
+    lines.append("**Classification**: Read (confidence: 0.92)")
+    lines.append("**Reasoning**: Reproducible benchmark comparison with concrete results and shared code.")
+    lines.append("")
+    lines.append(
+        '**Post**: "OpenAI just dropped GPT-5. Early benchmarks look insane. '
+        'This changes everything for agents. Curious what others think."'
+    )
+    lines.append("**Author**: @ai_observer")
+    lines.append("**Classification**: Read (confidence: 0.70)")
+    lines.append("**Reasoning**: Short-form breaking news commentary — informational but light on substance.")
 
     lines.append("")
     lines.append("## Instructions")
@@ -92,11 +91,12 @@ def build_user_prompt(posts: list[Post]) -> str:
 
 
 def _matches(post: Post, rule: dict) -> bool:
-    text_lower = post.post_text.lower()
-    author_lower = post.author_name.lower()
-    if any(kw.lower() in text_lower for kw in rule.get("keywords", [])):
+    keywords = rule.get("keywords", []) if isinstance(rule, dict) else []
+    authors = rule.get("authors", []) if isinstance(rule, dict) else []
+
+    if any(isinstance(pattern, str) and re.search(pattern, post.post_text) for pattern in keywords):
         return True
-    return any(a.lower() in author_lower for a in rule.get("authors", []))
+    return any(isinstance(pattern, str) and re.search(pattern, post.author_name) for pattern in authors)
 
 
 def check_whitelist(post: Post, whitelist: dict) -> bool:

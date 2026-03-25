@@ -5,10 +5,19 @@ from pydantic import BaseModel, ValidationError
 
 from server.schemas import (
     ArchiveResponse,
+    CategoryFeedbackBreakdownRow,
     DeleteResponse,
+    DigestGenerateResponse,
+    FeedbackStatsResponse,
+    NoteDeleteResponse,
+    NoteResponse,
+    NoteUpsertRequest,
+    OverrideConfidenceBucket,
+    OverrideConfidenceDistribution,
     PipelineRunRequest,
     PipelineRunResponse,
     PipelineStatusResponse,
+    PlatformFeedbackBreakdownRow,
     PostListResponse,
     PostResponse,
 )
@@ -18,6 +27,7 @@ def _sample_post_payload() -> dict[str, object]:
     return {
         "id": "post-1",
         "classification_id": "cls-1",
+        "platform": "linkedin",
         "author_name": "Jane Doe",
         "author_url": "https://linkedin.com/in/jane",
         "post_url": "https://linkedin.com/posts/1",
@@ -28,6 +38,7 @@ def _sample_post_payload() -> dict[str, object]:
         "reasoning": "Matches whitelist keywords.",
         "classified_at": "2026-02-25T00:00:00+00:00",
         "swipe_status": "pending",
+        "note": None,
     }
 
 
@@ -37,9 +48,18 @@ def test_all_schema_classes_are_pydantic_models():
         PostListResponse,
         ArchiveResponse,
         DeleteResponse,
+        NoteUpsertRequest,
+        NoteResponse,
+        NoteDeleteResponse,
         PipelineRunRequest,
         PipelineRunResponse,
         PipelineStatusResponse,
+        DigestGenerateResponse,
+        PlatformFeedbackBreakdownRow,
+        CategoryFeedbackBreakdownRow,
+        OverrideConfidenceBucket,
+        OverrideConfidenceDistribution,
+        FeedbackStatsResponse,
     ]
     assert all(issubclass(schema, BaseModel) for schema in schema_classes)
 
@@ -48,6 +68,7 @@ def test_post_response_schema_contract():
     expected_fields = {
         "id",
         "classification_id",
+        "platform",
         "author_name",
         "author_url",
         "post_url",
@@ -58,6 +79,7 @@ def test_post_response_schema_contract():
         "reasoning",
         "classified_at",
         "swipe_status",
+        "note",
     }
     assert set(PostResponse.model_fields) == expected_fields
 
@@ -93,6 +115,20 @@ def test_archive_and_delete_response_schema_contract():
 
     assert archive.model_dump() == {"status": "archived", "classification_id": "cls-1"}
     assert delete.model_dump() == {"status": "deleted", "classification_id": "cls-2"}
+
+
+def test_note_schema_contract():
+    assert set(NoteUpsertRequest.model_fields) == {"note_text"}
+    assert set(NoteResponse.model_fields) == {"classification_id", "note"}
+    assert set(NoteDeleteResponse.model_fields) == {"status", "classification_id"}
+
+    upsert = NoteUpsertRequest(note_text="Track this")
+    response = NoteResponse(classification_id="cls-1", note="Track this")
+    delete = NoteDeleteResponse(status="deleted", classification_id="cls-1")
+
+    assert upsert.model_dump() == {"note_text": "Track this"}
+    assert response.model_dump() == {"classification_id": "cls-1", "note": "Track this"}
+    assert delete.model_dump() == {"status": "deleted", "classification_id": "cls-1"}
 
 
 def test_pipeline_run_request_defaults():
@@ -136,3 +172,98 @@ def test_pipeline_status_response_schema_contract():
         error_message="",
     )
     assert response.model_dump()["run_id"] == "run-1"
+
+
+def test_digest_generate_response_schema_contract():
+    assert set(DigestGenerateResponse.model_fields) == {"digest_text"}
+    response = DigestGenerateResponse(digest_text="Daily Feed Digest")
+    assert response.model_dump() == {"digest_text": "Daily Feed Digest"}
+
+
+def test_feedback_stats_schema_contract():
+    assert set(PlatformFeedbackBreakdownRow.model_fields) == {
+        "platform",
+        "archive_count",
+        "delete_count",
+        "total",
+        "archive_ratio",
+        "delete_ratio",
+    }
+    assert set(CategoryFeedbackBreakdownRow.model_fields) == {
+        "category",
+        "archive_count",
+        "delete_count",
+        "total",
+        "archive_ratio",
+        "delete_ratio",
+    }
+    assert set(OverrideConfidenceBucket.model_fields) == {"bucket", "count"}
+    assert set(OverrideConfidenceDistribution.model_fields) == {
+        "total_overrides",
+        "average_confidence",
+        "distribution",
+    }
+    assert set(FeedbackStatsResponse.model_fields) == {
+        "total_feedback",
+        "by_platform",
+        "by_category",
+        "override_confidence",
+    }
+
+    response = FeedbackStatsResponse(
+        total_feedback=2,
+        by_platform=[
+            PlatformFeedbackBreakdownRow(
+                platform="linkedin",
+                archive_count=1,
+                delete_count=0,
+                total=1,
+                archive_ratio=1.0,
+                delete_ratio=0.0,
+            )
+        ],
+        by_category=[
+            CategoryFeedbackBreakdownRow(
+                category="Read",
+                archive_count=0,
+                delete_count=1,
+                total=1,
+                archive_ratio=0.0,
+                delete_ratio=1.0,
+            )
+        ],
+        override_confidence=OverrideConfidenceDistribution(
+            total_overrides=1,
+            average_confidence=0.9,
+            distribution=[OverrideConfidenceBucket(bucket="0.8-1.0", count=1)],
+        ),
+    )
+
+    assert response.model_dump() == {
+        "total_feedback": 2,
+        "by_platform": [
+            {
+                "platform": "linkedin",
+                "archive_count": 1,
+                "delete_count": 0,
+                "total": 1,
+                "archive_ratio": 1.0,
+                "delete_ratio": 0.0,
+            }
+        ],
+        "by_category": [
+            {
+                "category": "Read",
+                "archive_count": 0,
+                "delete_count": 1,
+                "total": 1,
+                "archive_ratio": 0.0,
+                "delete_ratio": 1.0,
+            }
+        ],
+        "override_confidence": {
+            "total_overrides": 1,
+            "average_confidence": 0.9,
+            "distribution": [{"bucket": "0.8-1.0", "count": 1}],
+        },
+    }

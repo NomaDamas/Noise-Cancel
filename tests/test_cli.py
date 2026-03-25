@@ -80,13 +80,20 @@ def test_init_refuses_overwrite(tmp_path: Path):
 # ===========================================================================
 
 
+def _patch_registry(mock_instance):
+    """Patch SCRAPER_REGISTRY.get to return a class that produces mock_instance."""
+    mock_class = MagicMock(return_value=mock_instance)
+    return patch("noise_cancel.scraper.SCRAPER_REGISTRY.get", return_value=mock_class)
+
+
 class TestLoginCommand:
     def test_login_saves_session_and_key(self, tmp_path: Path):
         config_path, data_dir = _write_config(tmp_path)
         mock_storage = {"cookies": [{"name": "li_at", "value": "abc123"}]}
         mock = _mock_scraper(storage_state=mock_storage)
+        mock._session_paths = MagicMock(return_value=(data_dir / "session.key", data_dir / "session.enc"))
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["login", "--config", str(config_path)])
 
         assert result.exit_code == 0
@@ -100,8 +107,9 @@ class TestLoginCommand:
         config_path, data_dir = _write_config(tmp_path)
         mock_storage = {"cookies": [{"name": "li_at", "value": "secret"}]}
         mock = _mock_scraper(storage_state=mock_storage)
+        mock._session_paths = MagicMock(return_value=(data_dir / "session.key", data_dir / "session.enc"))
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             runner.invoke(app, ["login", "--config", str(config_path)])
 
         key = (data_dir / "session.key").read_text().strip()
@@ -117,29 +125,31 @@ class TestLoginCommand:
         (data_dir / "session.key").write_text(existing_key)
 
         mock = _mock_scraper(storage_state={"cookies": []})
+        mock._session_paths = MagicMock(return_value=(data_dir / "session.key", data_dir / "session.enc"))
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["login", "--config", str(config_path)])
 
         assert result.exit_code == 0
         # Key file should still contain the original key
         assert (data_dir / "session.key").read_text().strip() == existing_key
 
-    def test_login_fails_when_no_session_captured(self, tmp_path: Path):
+    def test_login_completes_when_no_session_captured(self, tmp_path: Path):
         config_path, _ = _write_config(tmp_path)
         mock = _mock_scraper(storage_state=None)
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["login", "--config", str(config_path)])
 
-        assert result.exit_code == 1
-        assert "Login failed" in result.output
+        assert result.exit_code == 0
+        assert "completed" in result.output.lower()
 
     def test_login_key_file_permissions(self, tmp_path: Path):
         config_path, data_dir = _write_config(tmp_path)
         mock = _mock_scraper(storage_state={"cookies": []})
+        mock._session_paths = MagicMock(return_value=(data_dir / "session.key", data_dir / "session.enc"))
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             runner.invoke(app, ["login", "--config", str(config_path)])
 
         key_stat = (data_dir / "session.key").stat()
@@ -175,7 +185,7 @@ class TestScrapeCommand:
         ]
         mock = _mock_feed_scraper(posts)
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["scrape", "--config", str(config_path)])
 
         assert result.exit_code == 0
@@ -198,7 +208,7 @@ class TestScrapeCommand:
         posts = [Post(id="p1", author_name="Alice", post_text="Hi", post_url="https://li.com/p1")]
         mock = _mock_feed_scraper(posts)
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["scrape", "--config", str(config_path)])
 
         assert result.exit_code == 0
@@ -234,7 +244,7 @@ class TestScrapeCommand:
         ]
         mock = _mock_feed_scraper(posts)
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["scrape", "--config", str(config_path)])
 
         assert result.exit_code == 0
@@ -270,7 +280,7 @@ class TestScrapeCommand:
         ]
         mock = _mock_feed_scraper(posts)
 
-        with patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock):
+        with _patch_registry(mock):
             result = runner.invoke(app, ["scrape", "--config", str(config_path)])
 
         assert result.exit_code == 0
@@ -318,11 +328,17 @@ def _seed_db(tmp_path: Path) -> tuple[Path, Path]:
     return config_path, data_dir
 
 
-def _insert_post(conn, post_id: str = "p1", author: str = "Alice", text: str = "Hello world") -> None:
+def _insert_post(
+    conn,
+    post_id: str = "p1",
+    author: str = "Alice",
+    text: str = "Hello world",
+    platform: str = "linkedin",
+) -> None:
     """Insert a minimal post row via raw SQL."""
     conn.execute(
-        "INSERT INTO posts (id, platform, author_name, post_text, scraped_at) VALUES (?, ?, ?, ?, ?)",
-        (post_id, "linkedin", author, text, "2025-01-01T00:00:00"),
+        "INSERT INTO posts (id, platform, author_name, post_text, scraped_at, metadata) VALUES (?, ?, ?, ?, ?, ?)",
+        (post_id, platform, author, text, "2025-01-01T00:00:00", "{}"),
     )
     conn.commit()
 
@@ -388,6 +404,25 @@ def _insert_run_log(
             posts_delivered,
             error_message,
         ),
+    )
+    conn.commit()
+
+
+def _insert_feedback(
+    conn,
+    feedback_id: str,
+    classification_id: str,
+    action: str,
+    platform: str,
+    category: str,
+    confidence: float,
+    created_at: str = "2025-01-01T00:10:00+00:00",
+) -> None:
+    conn.execute(
+        """INSERT INTO feedback
+           (id, classification_id, action, platform, category, confidence, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (feedback_id, classification_id, action, platform, category, confidence, created_at),
     )
     conn.commit()
 
@@ -646,6 +681,72 @@ class TestDeliverCommand:
         result = runner.invoke(app, ["deliver", "--config", str(config_path)])
         assert result.exit_code == 0
         assert "No undelivered classifications" in result.output
+
+    def test_deliver_with_digest_flag_triggers_digest_generation(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+        from noise_cancel.digest.service import DigestRunResult
+
+        config_path, data_dir = _seed_db(tmp_path)
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        _insert_post(conn, "p1", "Alice", "Post for delivery with digest")
+        _insert_classification(conn, "c1", "p1", "Read", delivered=0)
+        conn.close()
+
+        digest_result = DigestRunResult(
+            digest_text="Daily Feed Digest\n\nDigest body",
+            delivered_plugins=1,
+            delivery_enabled=True,
+        )
+
+        with (
+            patch.dict("os.environ", {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/test"}, clear=True),
+            patch("noise_cancel.delivery.slack.SlackPlugin.deliver", return_value=1),
+            patch("noise_cancel.digest.service.generate_and_deliver_digest", return_value=digest_result) as mock_digest,
+        ):
+            result = runner.invoke(app, ["deliver", "--config", str(config_path), "--digest"])
+
+        assert result.exit_code == 0
+        assert "Delivered 1 posts" in result.output
+        assert "Delivered digest to 1 plugin(s)." in result.output
+        mock_digest.assert_called_once()
+
+
+class TestDigestCommand:
+    def test_digest_command_generates_text_and_updates_run_log(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+        from noise_cancel.digest.service import DigestRunResult
+
+        config_path, data_dir = _seed_db(tmp_path)
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        conn.close()
+
+        digest_result = DigestRunResult(
+            digest_text="Daily Feed Digest\n\nMock digest summary",
+            delivered_plugins=1,
+            delivery_enabled=True,
+        )
+
+        with patch("noise_cancel.digest.service.generate_and_deliver_digest", return_value=digest_result):
+            result = runner.invoke(app, ["digest", "--config", str(config_path)])
+
+        assert result.exit_code == 0
+        assert "Daily Feed Digest" in result.output
+        assert "Delivered digest to 1 plugin(s)." in result.output
+
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        row = conn.execute(
+            "SELECT run_type, status, posts_delivered FROM run_logs WHERE run_type = 'digest'",
+        ).fetchone()
+        assert row is not None
+        assert row["run_type"] == "digest"
+        assert row["status"] == "completed"
+        assert row["posts_delivered"] == 1
+        conn.close()
 
 
 # ===========================================================================
@@ -932,6 +1033,95 @@ class TestStatsCommand:
 
 
 # ===========================================================================
+# Feedback stats command tests
+# ===========================================================================
+
+
+class TestFeedbackStatsCommand:
+    def test_feedback_stats_json_payload(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+
+        _insert_run_log(conn, "run-1", "classify", started_at="2025-01-01T00:00:00")
+        _insert_post(conn, "p1", "Alice", "post one", platform="linkedin")
+        _insert_post(conn, "p2", "Bob", "post two", platform="x")
+        _insert_classification(conn, "c1", "p1", "Read", confidence=0.9)
+        _insert_classification(conn, "c2", "p2", "Skip", confidence=0.2)
+        _insert_feedback(conn, "f1", "c1", "delete", "linkedin", "Read", 0.9)
+        _insert_feedback(conn, "f2", "c2", "archive", "x", "Skip", 0.2)
+        conn.close()
+
+        result = runner.invoke(app, ["feedback-stats", "--config", str(config_path), "--json"])
+        assert result.exit_code == 0
+
+        payload = json.loads(result.output)
+        assert payload["total_feedback"] == 2
+        assert payload["by_platform"] == [
+            {
+                "platform": "linkedin",
+                "archive_count": 0,
+                "delete_count": 1,
+                "total": 1,
+                "archive_ratio": 0.0,
+                "delete_ratio": 1.0,
+            },
+            {
+                "platform": "x",
+                "archive_count": 1,
+                "delete_count": 0,
+                "total": 1,
+                "archive_ratio": 1.0,
+                "delete_ratio": 0.0,
+            },
+        ]
+        assert payload["by_category"] == [
+            {
+                "category": "Read",
+                "archive_count": 0,
+                "delete_count": 1,
+                "total": 1,
+                "archive_ratio": 0.0,
+                "delete_ratio": 1.0,
+            },
+            {
+                "category": "Skip",
+                "archive_count": 1,
+                "delete_count": 0,
+                "total": 1,
+                "archive_ratio": 1.0,
+                "delete_ratio": 0.0,
+            },
+        ]
+        assert payload["override_confidence"] == {
+            "total_overrides": 2,
+            "average_confidence": 0.55,
+            "distribution": [
+                {"bucket": "0.0-0.2", "count": 0},
+                {"bucket": "0.2-0.4", "count": 1},
+                {"bucket": "0.4-0.6", "count": 0},
+                {"bucket": "0.6-0.8", "count": 0},
+                {"bucket": "0.8-1.0", "count": 1},
+            ],
+        }
+
+    def test_feedback_stats_table_output(self, tmp_path: Path):
+        from noise_cancel.database import apply_migrations, get_connection
+
+        config_path, data_dir = _seed_db(tmp_path)
+        conn = get_connection(str(data_dir / "noise_cancel.db"))
+        apply_migrations(conn)
+        conn.close()
+
+        result = runner.invoke(app, ["feedback-stats", "--config", str(config_path)])
+        assert result.exit_code == 0
+        assert "Total Feedback: 0" in result.output
+        assert "No feedback records found." in result.output
+
+
+# ===========================================================================
 # Run (pipeline) command tests
 # ===========================================================================
 
@@ -950,7 +1140,7 @@ class TestRunCommand:
         mock_cls = [PostClassification(post_index=0, category="Read", confidence=0.9, reasoning="Good")]
 
         with (
-            patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock_scraper),
+            _patch_registry(mock_scraper),
             patch("noise_cancel.classifier.engine.ClassificationEngine.classify_posts", return_value=mock_cls),
             patch.dict("os.environ", {"SLACK_WEBHOOK_URL": "https://hooks.slack.com/services/test"}, clear=True),
             patch("noise_cancel.delivery.slack.SlackPlugin.deliver", return_value=1),
@@ -1002,7 +1192,7 @@ class TestRunCommand:
         mock_cls = [PostClassification(post_index=0, category="Read", confidence=0.9, reasoning="Good")]
 
         with (
-            patch("noise_cancel.scraper.linkedin.LinkedInScraper", return_value=mock_scraper),
+            _patch_registry(mock_scraper),
             patch("noise_cancel.classifier.engine.ClassificationEngine.classify_posts", return_value=mock_cls),
             patch("noise_cancel.delivery.slack.SlackPlugin.deliver", return_value=0) as mock_deliver,
         ):

@@ -21,7 +21,10 @@ from noise_cancel.logger.metrics import (
 )
 from noise_cancel.logger.repository import (
     count_posts_for_feed,
+    delete_note_by_classification_id,
     get_classifications,
+    get_feedback_stats,
+    get_note_by_classification_id,
     get_posts,
     get_posts_for_feed,
     get_run_logs,
@@ -31,8 +34,10 @@ from noise_cancel.logger.repository import (
     insert_post,
     insert_run_log,
     mark_delivered,
+    record_feedback_for_classification,
     update_run_log,
     update_swipe_status,
+    upsert_note,
 )
 from noise_cancel.models import Classification, Post, RunLog
 
@@ -50,9 +55,11 @@ def _make_post(
     author: str = "Alice",
     text: str = "Hello world",
     run_id: str | None = "run-1",
+    platform: str = "linkedin",
 ) -> Post:
     return Post(
         id=post_id,
+        platform=platform,
         author_name=author,
         post_text=text,
         run_id=run_id,
@@ -186,10 +193,10 @@ class TestClassifications:
 class TestFeedQueriesAndSwipeStatus:
     def _seed_feed_data(self, db_connection: sqlite3.Connection) -> None:
         insert_run_log(db_connection, _make_run_log())
-        insert_post(db_connection, _make_post("post-1"))
-        insert_post(db_connection, _make_post("post-2"))
-        insert_post(db_connection, _make_post("post-3"))
-        insert_post(db_connection, _make_post("post-4"))
+        insert_post(db_connection, _make_post("post-1", platform="linkedin"))
+        insert_post(db_connection, _make_post("post-2", platform="x"))
+        insert_post(db_connection, _make_post("post-3", platform="reddit"))
+        insert_post(db_connection, _make_post("post-4", platform="linkedin"))
         insert_classification(
             db_connection,
             _make_classification("cls-1", "post-1", "Read").model_copy(
@@ -248,6 +255,7 @@ class TestFeedQueriesAndSwipeStatus:
         expected_keys = {
             "id",
             "classification_id",
+            "platform",
             "author_name",
             "author_url",
             "post_url",
@@ -258,11 +266,14 @@ class TestFeedQueriesAndSwipeStatus:
             "reasoning",
             "classified_at",
             "swipe_status",
+            "note",
         }
         assert set(rows[0]) == expected_keys
         assert rows[0]["id"] == "post-2"
+        assert rows[0]["platform"] == "x"
         assert rows[0]["summary"] == "Summary 2"
         assert rows[0]["swipe_status"] == "pending"
+        assert rows[0]["note"] is None
 
         paged = get_posts_for_feed(
             db_connection,
@@ -283,9 +294,45 @@ class TestFeedQueriesAndSwipeStatus:
         assert count_posts_for_feed(db_connection, category="Read", swipe_status="pending") == 2
         assert count_posts_for_feed(db_connection, category="Read", swipe_status="archived") == 1
         assert count_posts_for_feed(db_connection, category="Skip", swipe_status="pending") == 1
+        assert count_posts_for_feed(db_connection, category="Read", swipe_status="pending", platform="x") == 1
+        assert count_posts_for_feed(db_connection, category="Read", swipe_status="pending", platform="linkedin") == 1
 
     def test_count_posts_for_feed_empty_results(self, db_connection: sqlite3.Connection) -> None:
         assert count_posts_for_feed(db_connection) == 0
+
+    def test_get_posts_for_feed_filters_by_platform(self, db_connection: sqlite3.Connection) -> None:
+        self._seed_feed_data(db_connection)
+
+        rows = get_posts_for_feed(
+            db_connection,
+            category="Read",
+            swipe_status="pending",
+            platform="linkedin",
+            limit=20,
+            offset=0,
+        )
+        assert [row["classification_id"] for row in rows] == ["cls-1"]
+        assert {row["platform"] for row in rows} == {"linkedin"}
+
+    def test_get_posts_for_feed_includes_note_text_when_present(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        self._seed_feed_data(db_connection)
+        upsert_note(db_connection, "cls-1", "Track this topic for weekly sync")
+
+        rows = get_posts_for_feed(
+            db_connection,
+            category="Read",
+            swipe_status="pending",
+            platform="linkedin",
+            limit=20,
+            offset=0,
+        )
+
+        assert len(rows) == 1
+        assert rows[0]["classification_id"] == "cls-1"
+        assert rows[0]["note"] == "Track this topic for weekly sync"
 
     def test_update_swipe_status_sets_swiped_at_timestamp(
         self,
@@ -330,6 +377,166 @@ class TestFeedQueriesAndSwipeStatus:
         assert row is not None
         assert row["swipe_status"] == "pending"
         assert row["swiped_at"] is None
+
+
+class TestNotes:
+    def test_upsert_note_inserts_new_note(self, db_connection: sqlite3.Connection) -> None:
+        _seed_basic(db_connection)
+
+        upsert_note(db_connection, "cls-1", "Useful idea for next sprint")
+        note = get_note_by_classification_id(db_connection, "cls-1")
+
+        assert note is not None
+        assert note["classification_id"] == "cls-1"
+        assert note["note_text"] == "Useful idea for next sprint"
+        assert note["created_at"] is not None
+        assert note["updated_at"] is not None
+
+    def test_upsert_note_updates_existing_note_without_changing_created_at(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        _seed_basic(db_connection)
+
+        upsert_note(db_connection, "cls-1", "first")
+        first = get_note_by_classification_id(db_connection, "cls-1")
+        assert first is not None
+
+        upsert_note(db_connection, "cls-1", "updated")
+        second = get_note_by_classification_id(db_connection, "cls-1")
+
+        assert second is not None
+        assert second["note_text"] == "updated"
+        assert second["created_at"] == first["created_at"]
+        assert second["updated_at"] >= first["updated_at"]
+
+    def test_delete_note_by_classification_id_removes_note(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        _seed_basic(db_connection)
+        upsert_note(db_connection, "cls-1", "delete me")
+
+        delete_note_by_classification_id(db_connection, "cls-1")
+        note = get_note_by_classification_id(db_connection, "cls-1")
+
+        assert note is None
+
+
+class TestFeedback:
+    def test_record_feedback_for_classification_inserts_context_fields(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post(platform="x"))
+        insert_classification(
+            db_connection,
+            _make_classification(category="Read", confidence=0.87),
+        )
+
+        saved = record_feedback_for_classification(db_connection, "cls-1", "archive")
+
+        assert saved is not None
+        assert saved["classification_id"] == "cls-1"
+        assert saved["action"] == "archive"
+        assert saved["platform"] == "x"
+        assert saved["category"] == "Read"
+        assert saved["confidence"] == 0.87
+        assert saved["id"]
+        parsed = datetime.fromisoformat(saved["created_at"])
+        assert parsed.tzinfo is not None
+        assert parsed.utcoffset() == timedelta(0)
+
+    def test_record_feedback_for_classification_rejects_invalid_action(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        _seed_basic(db_connection)
+
+        with pytest.raises(ValueError, match="Invalid feedback action"):
+            record_feedback_for_classification(db_connection, "cls-1", "maybe")
+
+    def test_record_feedback_for_classification_returns_none_when_missing_classification(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        _seed_basic(db_connection)
+
+        saved = record_feedback_for_classification(db_connection, "missing", "archive")
+        assert saved is None
+        rows = db_connection.execute("SELECT * FROM feedback").fetchall()
+        assert rows == []
+
+    def test_get_feedback_stats_returns_platform_category_ratios_and_override_distribution(
+        self,
+        db_connection: sqlite3.Connection,
+    ) -> None:
+        insert_run_log(db_connection, _make_run_log())
+        insert_post(db_connection, _make_post("post-1", platform="linkedin"))
+        insert_post(db_connection, _make_post("post-2", platform="linkedin"))
+        insert_post(db_connection, _make_post("post-3", platform="x"))
+        insert_post(db_connection, _make_post("post-4", platform="x"))
+        insert_classification(db_connection, _make_classification("cls-1", "post-1", "Read", confidence=0.95))
+        insert_classification(db_connection, _make_classification("cls-2", "post-2", "Read", confidence=0.82))
+        insert_classification(db_connection, _make_classification("cls-3", "post-3", "Skip", confidence=0.21))
+        insert_classification(db_connection, _make_classification("cls-4", "post-4", "Skip", confidence=0.11))
+
+        record_feedback_for_classification(db_connection, "cls-1", "archive")
+        record_feedback_for_classification(db_connection, "cls-2", "delete")
+        record_feedback_for_classification(db_connection, "cls-3", "archive")
+        record_feedback_for_classification(db_connection, "cls-4", "delete")
+
+        stats = get_feedback_stats(db_connection)
+        assert stats["total_feedback"] == 4
+
+        by_platform = {row["platform"]: row for row in stats["by_platform"]}
+        assert by_platform["linkedin"] == {
+            "platform": "linkedin",
+            "archive_count": 1,
+            "delete_count": 1,
+            "total": 2,
+            "archive_ratio": 0.5,
+            "delete_ratio": 0.5,
+        }
+        assert by_platform["x"] == {
+            "platform": "x",
+            "archive_count": 1,
+            "delete_count": 1,
+            "total": 2,
+            "archive_ratio": 0.5,
+            "delete_ratio": 0.5,
+        }
+
+        by_category = {row["category"]: row for row in stats["by_category"]}
+        assert by_category["Read"] == {
+            "category": "Read",
+            "archive_count": 1,
+            "delete_count": 1,
+            "total": 2,
+            "archive_ratio": 0.5,
+            "delete_ratio": 0.5,
+        }
+        assert by_category["Skip"] == {
+            "category": "Skip",
+            "archive_count": 1,
+            "delete_count": 1,
+            "total": 2,
+            "archive_ratio": 0.5,
+            "delete_ratio": 0.5,
+        }
+
+        overrides = stats["override_confidence"]
+        assert overrides["total_overrides"] == 2
+        assert overrides["average_confidence"] == pytest.approx(0.515)
+        distribution = {row["bucket"]: row["count"] for row in overrides["distribution"]}
+        assert distribution == {
+            "0.0-0.2": 0,
+            "0.2-0.4": 1,
+            "0.4-0.6": 0,
+            "0.6-0.8": 0,
+            "0.8-1.0": 1,
+        }
 
 
 # ---------------------------------------------------------------------------

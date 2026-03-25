@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from unittest.mock import MagicMock, patch
 
 from noise_cancel.classifier.schemas import BatchClassificationResult, PostClassification
@@ -12,9 +13,15 @@ from noise_cancel.models import Post
 # ---------------------------------------------------------------------------
 
 
-def _make_post(index: int = 0, text: str = "Hello world", author: str = "Alice") -> Post:
+def _make_post(
+    index: int = 0,
+    text: str = "Hello world",
+    author: str = "Alice",
+    platform: str = "linkedin",
+) -> Post:
     return Post(
         id=f"post-{index}",
+        platform=platform,
         author_name=author,
         post_text=text,
     )
@@ -38,11 +45,11 @@ def _make_config(**overrides) -> AppConfig:
             },
         ],
         "whitelist": {
-            "keywords": ["research paper", "arxiv"],
-            "authors": ["Yann LeCun"],
+            "keywords": [r"(?i)research paper", r"(?i)\barxiv\b"],
+            "authors": [r"(?i)yann lecun"],
         },
         "blacklist": {
-            "keywords": ["agree?", "thoughts?", "like if you"],
+            "keywords": [r"(?i)agree\?", r"(?i)thoughts\?", r"(?i)like if you"],
             "authors": [],
         },
     }
@@ -126,22 +133,19 @@ class TestBuildSystemPrompt:
         assert "Worth reading - valuable insights" in prompt
         assert "Skip" in prompt
 
-    def test_contains_whitelist(self):
+    def test_does_not_include_rule_keyword_lists(self):
         from noise_cancel.classifier.prompts import build_system_prompt
 
-        whitelist = {"keywords": ["arxiv"], "authors": ["Yann LeCun"]}
-        prompt = build_system_prompt(categories=[], whitelist=whitelist)
-        assert "arxiv" in prompt
-        assert "Yann LeCun" in prompt
-        assert "Always classify as **Read**" in prompt
-
-    def test_contains_blacklist(self):
-        from noise_cancel.classifier.prompts import build_system_prompt
-
-        blacklist = {"keywords": ["agree?"], "authors": []}
-        prompt = build_system_prompt(categories=[], blacklist=blacklist)
-        assert "agree?" in prompt
-        assert "Always classify as **Skip**" in prompt
+        prompt = build_system_prompt(
+            categories=[],
+            whitelist={"keywords": [r"(?i)\barxiv\b"], "authors": [r"(?i)yann lecun"]},
+            blacklist={"keywords": [r"(?i)agree\?"], "authors": []},
+        )
+        assert "Override Rules" not in prompt
+        assert "Always classify as **Read**" not in prompt
+        assert "Always classify as **Skip**" not in prompt
+        assert r"(?i)\barxiv\b" not in prompt
+        assert r"(?i)agree\?" not in prompt
 
     def test_empty_lists(self):
         from noise_cancel.classifier.prompts import build_system_prompt
@@ -197,29 +201,29 @@ class TestBuildUserPrompt:
 
 
 class TestCheckWhitelist:
-    def test_keyword_match(self):
+    def test_keyword_group_match(self):
         from noise_cancel.classifier.prompts import check_whitelist
 
         post = _make_post(text="Check out this research paper on arxiv about LLMs")
-        assert check_whitelist(post, {"keywords": ["research paper", "arxiv"], "authors": []}) is True
+        assert check_whitelist(post, {"keywords": [r"\b(arxiv|preprint)\b"], "authors": []}) is True
 
-    def test_keyword_no_match(self):
+    def test_keyword_anchor_no_match(self):
         from noise_cancel.classifier.prompts import check_whitelist
 
-        post = _make_post(text="Just a normal post about cooking")
-        assert check_whitelist(post, {"keywords": ["research paper", "arxiv"], "authors": []}) is False
+        post = _make_post(text="FYI: AI update from the team")
+        assert check_whitelist(post, {"keywords": [r"^AI update"], "authors": []}) is False
 
-    def test_author_match(self):
+    def test_author_regex_match(self):
         from noise_cancel.classifier.prompts import check_whitelist
 
         post = _make_post(text="Some post", author="Yann LeCun")
-        assert check_whitelist(post, {"keywords": [], "authors": ["Yann LeCun"]}) is True
+        assert check_whitelist(post, {"keywords": [], "authors": [r"Yann\s+LeCun"]}) is True
 
-    def test_author_case_insensitive(self):
+    def test_regex_inline_flag_case_insensitive(self):
         from noise_cancel.classifier.prompts import check_whitelist
 
-        post = _make_post(text="Some post", author="yann lecun")
-        assert check_whitelist(post, {"keywords": [], "authors": ["Yann LeCun"]}) is True
+        post = _make_post(text="ai strategy memo")
+        assert check_whitelist(post, {"keywords": [r"(?i)\bAI\b"], "authors": []}) is True
 
     def test_empty_whitelist(self):
         from noise_cancel.classifier.prompts import check_whitelist
@@ -239,19 +243,19 @@ class TestCheckBlacklist:
         from noise_cancel.classifier.prompts import check_blacklist
 
         post = _make_post(text="This is amazing, agree?")
-        assert check_blacklist(post, {"keywords": ["agree?", "thoughts?"], "authors": []}) is True
+        assert check_blacklist(post, {"keywords": [r"agree\?", r"thoughts\?"], "authors": []}) is True
 
     def test_keyword_no_match(self):
         from noise_cancel.classifier.prompts import check_blacklist
 
         post = _make_post(text="Solid technical analysis of transformers")
-        assert check_blacklist(post, {"keywords": ["agree?", "thoughts?"], "authors": []}) is False
+        assert check_blacklist(post, {"keywords": [r"agree\?", r"thoughts\?"], "authors": []}) is False
 
     def test_author_match(self):
         from noise_cancel.classifier.prompts import check_blacklist
 
         post = _make_post(text="Buy my course!", author="Spammy Steve")
-        assert check_blacklist(post, {"keywords": [], "authors": ["Spammy Steve"]}) is True
+        assert check_blacklist(post, {"keywords": [], "authors": [r"Spammy\s+Steve"]}) is True
 
 
 # ===========================================================================
@@ -373,6 +377,26 @@ class TestPreFilterWhitelistBlacklist:
         mock_client.messages.create.assert_called_once()
 
 
+class TestRegexRuleCompilation:
+    def test_compiles_patterns_once(self):
+        from noise_cancel.classifier.engine import ClassificationEngine
+
+        config = _make_config(
+            whitelist={"keywords": [r"\bAI\b"], "authors": [r"Yann\s+LeCun"]},
+            blacklist={"keywords": [r"^Spam:"], "authors": []},
+        )
+
+        with patch("noise_cancel.classifier.engine.re.compile", wraps=re.compile) as mock_compile:
+            engine = ClassificationEngine(config)
+            compile_call_count = mock_compile.call_count
+
+            # Matching should not trigger additional compilation.
+            engine._apply_rules(_make_post(text="AI memo"), 0)
+            engine._apply_rules(_make_post(text="No rule match"), 1)
+
+            assert mock_compile.call_count == compile_call_count
+
+
 class TestClassifyBatch:
     def test_classify_batch_calls_api(self):
         from noise_cancel.classifier.engine import ClassificationEngine
@@ -434,6 +458,37 @@ class TestClassifyBatch:
         call_kwargs = mock_client.messages.create.call_args
         assert call_kwargs.kwargs["model"] == "claude-sonnet-4-5-20250929"
 
+    def test_system_prompt_excludes_rule_patterns(self):
+        from noise_cancel.classifier.engine import ClassificationEngine
+
+        config = _make_config(
+            whitelist={"keywords": [r"UNIQUE_WL_PATTERN"], "authors": []},
+            blacklist={"keywords": [r"UNIQUE_BL_PATTERN"], "authors": []},
+        )
+        engine = ClassificationEngine(config)
+
+        mock_client = MagicMock()
+        engine._client = mock_client
+
+        mock_tool_block = MagicMock()
+        mock_tool_block.type = "tool_use"
+        mock_tool_block.input = {
+            "classifications": [
+                {"post_index": 0, "category": "Read", "confidence": 0.5, "reasoning": "r"},
+            ]
+        }
+        mock_response = MagicMock()
+        mock_response.content = [mock_tool_block]
+        mock_response.stop_reason = "tool_use"
+        mock_client.messages.create.return_value = mock_response
+
+        engine.classify_batch([_make_post(0, "Normal post")])
+
+        call_kwargs = mock_client.messages.create.call_args.kwargs
+        system_prompt = call_kwargs["system"]
+        assert "UNIQUE_WL_PATTERN" not in system_prompt
+        assert "UNIQUE_BL_PATTERN" not in system_prompt
+
 
 class TestClassifyPosts:
     def test_splits_into_batches(self):
@@ -479,6 +534,59 @@ class TestClassifyPosts:
         engine = ClassificationEngine(config)
         results = engine.classify_posts([])
         assert results == []
+
+    def test_classify_posts_uses_platform_specific_system_prompts(self):
+        from noise_cancel.classifier.engine import ClassificationEngine
+
+        config = _make_config(
+            batch_size=10,
+            whitelist={"keywords": [], "authors": []},
+            blacklist={"keywords": [], "authors": []},
+            platform_prompts={
+                "x": {"system_prompt": "X_PLATFORM_SYSTEM_PROMPT"},
+                "reddit": {"system_prompt": "REDDIT_PLATFORM_SYSTEM_PROMPT"},
+            },
+        )
+        engine = ClassificationEngine(config)
+
+        mock_client = MagicMock()
+        engine._client = mock_client
+
+        def make_response(batch_size: int) -> MagicMock:
+            classifications = [
+                {"post_index": i, "category": "Read", "confidence": 0.6, "reasoning": "r"} for i in range(batch_size)
+            ]
+            mock_tool_block = MagicMock()
+            mock_tool_block.type = "tool_use"
+            mock_tool_block.input = {"classifications": classifications}
+            mock_response = MagicMock()
+            mock_response.content = [mock_tool_block]
+            mock_response.stop_reason = "tool_use"
+            return mock_response
+
+        # LinkedIn (default prompt), X (override), Reddit (override).
+        mock_client.messages.create.side_effect = [
+            make_response(1),
+            make_response(2),
+            make_response(1),
+        ]
+
+        posts = [
+            _make_post(0, "LinkedIn post", platform="linkedin"),
+            _make_post(1, "X post 1", platform="x"),
+            _make_post(2, "Reddit post", platform="reddit"),
+            _make_post(3, "X post 2", platform="x"),
+        ]
+
+        results = engine.classify_posts(posts)
+
+        assert len(results) == 4
+        assert mock_client.messages.create.call_count == 3
+
+        system_prompts = [call.kwargs["system"] for call in mock_client.messages.create.call_args_list]
+        assert "You are a social media feed classifier." in system_prompts[0]
+        assert system_prompts[1] == "X_PLATFORM_SYSTEM_PROMPT"
+        assert system_prompts[2] == "REDDIT_PLATFORM_SYSTEM_PROMPT"
 
 
 class TestLazyClient:

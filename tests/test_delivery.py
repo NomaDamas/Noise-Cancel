@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 import httpx
 
 from noise_cancel.config import AppConfig
-from noise_cancel.delivery.blocks import build_post_blocks
-from noise_cancel.delivery.slack import deliver_posts, send_to_slack
+from noise_cancel.delivery.blocks import build_digest_blocks, build_post_blocks
+from noise_cancel.delivery.slack import deliver_digest_text, deliver_posts, send_to_slack
 from noise_cancel.models import Classification, Post
 
 # ---------------------------------------------------------------------------
@@ -245,3 +245,43 @@ class TestDeliverPosts:
             count = deliver_posts(posts_cls, config)
 
         assert count == 2
+
+
+class TestDigestDelivery:
+    def test_build_digest_blocks_uses_header_sections_and_dividers(self):
+        digest_text = "\n".join([
+            "Date: 2026-02-26",
+            "",
+            "Platform breakdown:",
+            "- linkedin: 2",
+            "- x: 1",
+            "",
+            "Theme summary:",
+            "- Theme A",
+            "- Theme B",
+            "- Theme C",
+        ])
+
+        blocks = build_digest_blocks(digest_text)
+        block_types = [block["type"] for block in blocks]
+
+        assert block_types[0] == "header"
+        assert "section" in block_types
+        assert "divider" in block_types
+
+    def test_deliver_digest_text_sends_block_kit_payload(self):
+        config = AppConfig()
+        plugin_config = {
+            "type": "slack",
+            "webhook_url": "https://hooks.slack.com/services/test",
+        }
+
+        with patch("noise_cancel.delivery.slack.send_to_slack", return_value=True) as mock_send:
+            delivered = deliver_digest_text("Daily Feed Digest\n\nBody", config, plugin_config)
+
+        assert delivered is True
+        mock_send.assert_called_once()
+        call = mock_send.call_args
+        assert call.args[0] == "https://hooks.slack.com/services/test"
+        blocks = call.args[1]
+        assert blocks[0]["type"] == "header"

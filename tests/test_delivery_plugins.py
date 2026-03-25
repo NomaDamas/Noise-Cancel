@@ -39,6 +39,7 @@ class TestDeliveryPluginBase:
 
         plugin = CompletePlugin()
         assert plugin.deliver([], AppConfig()) == 0
+        assert plugin.deliver_digest("digest", AppConfig(), {}) is False
         plugin.validate_config({})
 
 
@@ -63,6 +64,17 @@ class TestSlackPlugin:
 
         assert delivered_count == 3
         mock_deliver.assert_called_once_with([], config)
+
+    def test_deliver_digest_delegates_to_deliver_digest_text(self):
+        plugin = SlackPlugin()
+        config = AppConfig()
+        plugin_config = {"type": "slack", "webhook_url": "https://hooks.slack.com/services/test"}
+
+        with patch("noise_cancel.delivery.slack.deliver_digest_text", return_value=True) as mock_deliver_digest:
+            delivered = plugin.deliver_digest("Daily digest body", config, plugin_config)
+
+        assert delivered is True
+        mock_deliver_digest.assert_called_once_with("Daily digest body", config, plugin_config)
 
     def test_validate_config_raises_without_webhook(self):
         plugin = SlackPlugin()

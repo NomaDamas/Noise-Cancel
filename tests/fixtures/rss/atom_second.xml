@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Second Atom Feed</title>
+  <id>https://example.net/feed</id>
+  <updated>2025-02-26T00:00:00Z</updated>
+  <author>
+    <name>Second Feed Author</name>
+  </author>
+  <entry>
+    <id>tag:example.net,2025:3</id>
+    <title>Entry three</title>
+    <link href="https://example.net/posts/3" />
+    <updated>2025-02-26T12:00:00Z</updated>
+    <summary>Summary three</summary>
+  </entry>
+</feed>

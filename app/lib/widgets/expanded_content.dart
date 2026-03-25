@@ -1,15 +1,19 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:noise_cancel_app/models/post.dart';
+import 'package:noise_cancel_app/services/share_service.dart';
+import 'package:noise_cancel_app/widgets/platform_badge.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class ExpandedContent extends StatefulWidget {
   const ExpandedContent({
     super.key,
     required this.post,
+    this.shareService = const NativeShareService(),
   });
 
   final Post post;
+  final ShareService shareService;
 
   @override
   State<ExpandedContent> createState() => _ExpandedContentState();
@@ -37,7 +41,11 @@ class _ExpandedContentState extends State<ExpandedContent> {
   }
 
   Future<void> _openAuthorProfile() async {
-    final uri = Uri.tryParse(widget.post.authorUrl);
+    final authorUrl = widget.post.authorUrl;
+    if (authorUrl == null) {
+      return;
+    }
+    final uri = Uri.tryParse(authorUrl);
     if (uri == null) {
       return;
     }
@@ -52,6 +60,19 @@ class _ExpandedContentState extends State<ExpandedContent> {
     }
 
     await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _sharePost(BuildContext context) async {
+    try {
+      await widget.shareService.sharePost(widget.post);
+    } catch (_) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('공유를 시작하지 못했습니다.')),
+      );
+    }
   }
 
   List<TextSpan> _buildPostTextSpans({
@@ -164,7 +185,7 @@ class _ExpandedContentState extends State<ExpandedContent> {
                 TextButton.icon(
                   onPressed: _openAuthorProfile,
                   icon: const Icon(Icons.open_in_new, size: 16),
-                  label: const Text('LinkedIn'),
+                  label: Text(platformDisplayName(widget.post.platform)),
                 ),
               ],
             ),
@@ -183,6 +204,16 @@ class _ExpandedContentState extends State<ExpandedContent> {
                     ),
                   ),
                 ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: IconButton(
+                key: const Key('expanded-share-button'),
+                onPressed: () => _sharePost(context),
+                icon: const Icon(Icons.share_outlined),
+                tooltip: '공유',
               ),
             ),
           ],

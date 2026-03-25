@@ -11,7 +11,8 @@ void main() {
     FlutterSecureStorage.setMockInitialValues(<String, String>{});
   });
 
-  test('fetchPosts reads server URL from secure storage and parses posts', () async {
+  test('fetchPosts reads server URL from secure storage and parses posts',
+      () async {
     FlutterSecureStorage.setMockInitialValues(<String, String>{
       'server_url': 'http://localhost:9000/',
     });
@@ -25,6 +26,7 @@ void main() {
             <String, dynamic>{
               'id': 'post-1',
               'classification_id': 'cls-1',
+              'platform': 'linkedin',
               'author_name': 'Jane Doe',
               'author_url': 'https://linkedin.com/in/jane',
               'post_url': 'https://linkedin.com/posts/post-1',
@@ -48,7 +50,8 @@ void main() {
     final posts = await service.fetchPosts(limit: 5, offset: 10);
 
     expect(requestedUri, isNotNull);
-    expect(requestedUri.toString(), 'http://localhost:9000/api/posts?limit=5&offset=10');
+    expect(requestedUri.toString(),
+        'http://localhost:9000/api/posts?limit=5&offset=10');
     expect(posts, hasLength(1));
     expect(posts.first.classificationId, 'cls-1');
   });
@@ -71,11 +74,88 @@ void main() {
       );
     });
 
-    final service = ApiService(baseUrl: 'http://configured:8012', client: client);
+    final service =
+        ApiService(baseUrl: 'http://configured:8012', client: client);
     await service.fetchPosts();
 
     expect(requestedUri, isNotNull);
-    expect(requestedUri.toString(), 'http://configured:8012/api/posts?limit=20&offset=0');
+    expect(requestedUri.toString(),
+        'http://configured:8012/api/posts?limit=20&offset=0');
+  });
+
+  test('fetchPosts forwards archive filters and keyword query params',
+      () async {
+    Uri? requestedUri;
+    final client = MockClient((request) async {
+      requestedUri = request.url;
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'posts': <Map<String, dynamic>>[],
+          'total': 0,
+          'has_more': false,
+        }),
+        200,
+      );
+    });
+
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
+    await service.fetchPosts(
+      limit: 20,
+      offset: 0,
+      swipeStatus: 'archived',
+      platform: 'reddit',
+      query: 'ai',
+    );
+
+    expect(requestedUri, isNotNull);
+    expect(
+      requestedUri.toString(),
+      'http://localhost:8012/api/posts?limit=20&offset=0&swipe_status=archived&platform=reddit&q=ai',
+    );
+  });
+
+  test('fetchPostPage returns list metadata for pagination and badges',
+      () async {
+    final client = MockClient((_) async {
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'posts': [
+            <String, dynamic>{
+              'id': 'post-1',
+              'classification_id': 'cls-1',
+              'platform': 'linkedin',
+              'author_name': 'Jane Doe',
+              'author_url': 'https://linkedin.com/in/jane',
+              'post_url': 'https://linkedin.com/posts/post-1',
+              'post_text': 'A useful post',
+              'summary': 'A short summary',
+              'category': 'Read',
+              'confidence': 0.95,
+              'reasoning': 'Matches user interests',
+              'classified_at': '2026-02-25T10:00:00+00:00',
+              'swipe_status': 'archived',
+            },
+          ],
+          'total': 37,
+          'has_more': true,
+        }),
+        200,
+      );
+    });
+
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
+    final page = await service.fetchPostPage(
+      limit: 20,
+      offset: 0,
+      swipeStatus: 'archived',
+    );
+
+    expect(page.posts, hasLength(1));
+    expect(page.posts.first.classificationId, 'cls-1');
+    expect(page.total, 37);
+    expect(page.hasMore, isTrue);
   });
 
   test('archivePost returns the full post data payload', () async {
@@ -96,11 +176,13 @@ void main() {
       );
     });
 
-    final service = ApiService(baseUrl: 'http://localhost:8012', client: client);
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
     final payload = await service.archivePost('cls-1');
 
     expect(requestedUri, isNotNull);
-    expect(requestedUri.toString(), 'http://localhost:8012/api/posts/cls-1/archive');
+    expect(requestedUri.toString(),
+        'http://localhost:8012/api/posts/cls-1/archive');
     expect(payload['author_name'], 'Jane Doe');
     expect(payload['category'], 'Read');
   });
@@ -118,16 +200,91 @@ void main() {
       );
     });
 
-    final service = ApiService(baseUrl: 'http://localhost:8012', client: client);
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
     await service.deletePost('cls-1');
 
     expect(requestedUri, isNotNull);
-    expect(requestedUri.toString(), 'http://localhost:8012/api/posts/cls-1/delete');
+    expect(requestedUri.toString(),
+        'http://localhost:8012/api/posts/cls-1/delete');
+  });
+
+  test('saveNote posts note payload and returns saved note text', () async {
+    Uri? requestedUri;
+    String? requestBody;
+    final client = MockClient((request) async {
+      requestedUri = request.url;
+      requestBody = request.body;
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'classification_id': 'cls-1',
+          'note': 'Track this for weekly review',
+        }),
+        200,
+      );
+    });
+
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
+    final saved = await service.saveNote('cls-1', 'Track this for weekly review');
+
+    expect(requestedUri, isNotNull);
+    expect(requestedUri.toString(),
+        'http://localhost:8012/api/posts/cls-1/note');
+    expect(requestBody, '{"note_text":"Track this for weekly review"}');
+    expect(saved, 'Track this for weekly review');
+  });
+
+  test('fetchNote returns null when note is not set', () async {
+    Uri? requestedUri;
+    final client = MockClient((request) async {
+      requestedUri = request.url;
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'classification_id': 'cls-1',
+          'note': null,
+        }),
+        200,
+      );
+    });
+
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
+    final note = await service.fetchNote('cls-1');
+
+    expect(requestedUri, isNotNull);
+    expect(requestedUri.toString(),
+        'http://localhost:8012/api/posts/cls-1/note');
+    expect(note, isNull);
+  });
+
+  test('deleteNote calls note delete endpoint and completes on success',
+      () async {
+    Uri? requestedUri;
+    final client = MockClient((request) async {
+      requestedUri = request.url;
+      return http.Response(
+        jsonEncode(<String, dynamic>{
+          'status': 'deleted',
+          'classification_id': 'cls-1',
+        }),
+        200,
+      );
+    });
+
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
+    await service.deleteNote('cls-1');
+
+    expect(requestedUri, isNotNull);
+    expect(requestedUri.toString(),
+        'http://localhost:8012/api/posts/cls-1/note');
   });
 
   test('fetchPosts throws ApiServiceException on non-200 response', () async {
     final client = MockClient((_) async => http.Response('server error', 500));
-    final service = ApiService(baseUrl: 'http://localhost:8012', client: client);
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
 
     await expectLater(
       service.fetchPosts(),
@@ -137,7 +294,8 @@ void main() {
 
   test('archivePost throws ApiServiceException on http errors', () async {
     final client = MockClient((_) async => http.Response('not found', 404));
-    final service = ApiService(baseUrl: 'http://localhost:8012', client: client);
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
 
     await expectLater(
       service.archivePost('missing'),
@@ -146,11 +304,24 @@ void main() {
   });
 
   test('deletePost throws ApiServiceException on network exceptions', () async {
-    final client = MockClient((_) async => throw http.ClientException('network error'));
-    final service = ApiService(baseUrl: 'http://localhost:8012', client: client);
+    final client =
+        MockClient((_) async => throw http.ClientException('network error'));
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
 
     await expectLater(
       service.deletePost('cls-1'),
+      throwsA(isA<ApiServiceException>()),
+    );
+  });
+
+  test('saveNote throws ApiServiceException on http errors', () async {
+    final client = MockClient((_) async => http.Response('not found', 404));
+    final service =
+        ApiService(baseUrl: 'http://localhost:8012', client: client);
+
+    await expectLater(
+      service.saveNote('missing', 'note'),
       throwsA(isA<ApiServiceException>()),
     );
   });

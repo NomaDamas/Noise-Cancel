@@ -1,8 +1,8 @@
-# AGENTS.md — NoiseCancel Project Context
+# AGENTS.md — NoiseCancel v2 Project Context
 
 ## What This Project Does
 
-AI-powered LinkedIn feed noise filter. Scrapes LinkedIn feed via Playwright, classifies posts with Claude API, and delivers curated content. Currently a CLI tool being extended into a monorepo with a FastAPI REST API server and Flutter cross-platform mobile app (Tinder-style swipe UI).
+AI-powered multi-platform social feed noise filter. Scrapes home feeds from LinkedIn, X (Twitter), Threads, Reddit, and RSS; classifies posts with Claude API (per-platform prompts); deduplicates across platforms with semantic similarity; and delivers curated content. Monorepo with Python core library + CLI, FastAPI REST API server, and Flutter cross-platform mobile app (Tinder-style swipe UI with archive browsing).
 
 ## Monorepo Layout
 
@@ -13,9 +13,10 @@ noise-cancel/
 │   ├── config.py          # YAML + env config loading (AppConfig pydantic model)
 │   ├── models.py          # Pydantic models: Post, Classification, RunLog
 │   ├── database.py        # SQLite connection + migration runner
-│   ├── scraper/           # LinkedIn scraping (Playwright, Fernet auth, anti-detection)
-│   ├── classifier/        # Claude API batch classification (engine, prompts, schemas)
-│   ├── delivery/          # Slack webhook (slack.py, blocks.py)
+│   ├── scraper/           # Platform scrapers (base.py, linkedin.py, x.py, threads.py, reddit.py, rss.py, auth.py, anti_detection.py)
+│   ├── classifier/        # Claude API batch classification (engine, prompts, schemas) — per-platform prompts
+│   ├── dedup/             # Semantic dedup (embedder.py, semantic.py) — optional embedding-based cross-platform dedup
+│   ├── delivery/          # Plugin-based delivery (base.py, loader.py, slack.py, blocks.py)
 │   └── logger/            # DB queries (repository.py), metrics, export
 ├── server/                # FastAPI REST API (new, imports from noise_cancel/)
 │   ├── main.py            # App factory, lifespan, CORS
@@ -39,9 +40,13 @@ noise-cancel/
 - **Flutter/Dart** — cross-platform mobile app
 - **SQLite** — database (WAL mode, foreign keys ON)
 - **Pydantic** — all data models
-- **Playwright** — LinkedIn scraping
-- **Claude API (anthropic)** — post classification
+- **Playwright** — Browser scraping (LinkedIn, X, Threads)
+- **PRAW** — Reddit API wrapper (OAuth)
+- **feedparser** — RSS/Atom feed parsing
+- **sentence-transformers** (optional) — Local embedding for semantic dedup
+- **Claude API (anthropic)** — Post classification + dedup verification + daily digest
 - **httpx** — HTTP client (Python side)
+- **share_plus** (Flutter) — Native OS share sheet
 
 ## Critical Rules
 
@@ -53,27 +58,34 @@ noise-cancel/
 6. **Pydantic models**: All data classes must extend `pydantic.BaseModel`.
 7. **Backward compatibility**: Config changes must support old format as fallback. Users who upgrade should not need to rewrite their config.yaml.
 
-## Current MVP Scope (prd.json stories)
+## v2 Scope (prd.json stories)
 
-The current iteration implements these features for public launch:
+15 user stories across 5 phases. Closes GitHub issues #1, #11, #12, #16, #17, #22, #23, #24.
 
-1. **Delivery plugin architecture (US-001 + US-002)**: Refactor `noise_cancel/delivery/` from monolithic Slack-only to a pluggable system. Abstract base class `DeliveryPlugin` in `base.py`, Slack becomes `SlackPlugin`. Config format changes from `delivery.method`/`delivery.slack` to `delivery.plugins` list. Legacy format must auto-convert.
+### Phase 1: Core Foundation
+- **US-001**: Multi-platform scraper architecture — ScraperRegistry, per-platform config, pipeline iterates enabled platforms
+- **US-002**: Regex keyword matching — whitelist/blacklist as `re.Pattern`, remove from LLM prompt (#1)
+- **US-003**: Per-platform classifier prompts — `classifier.platform_prompts` dict with system_prompt overrides
 
-2. **Server config section (US-003)**: Add `server` section to `AppConfig` for `cors_origins`. Requires adding `_DEFAULT_SERVER` to `config.py` and a new `server` field on `AppConfig`. `create_app()` must load config to read CORS settings before constructing middleware.
+### Phase 2: Platform Scrapers
+- **US-004**: X (Twitter) scraper — Playwright, home timeline, encrypted session (#17)
+- **US-005**: Threads scraper — Playwright, home feed, encrypted session (#17)
+- **US-006**: Reddit scraper — PRAW + OAuth, home feed, free tier (#17)
+- **US-007**: RSS feed integration — feedparser, arbitrary feed URLs (#16)
 
-3. **API Key auth (US-004)**: Depends on US-003's `server` config section. Add `server.api_key` field. FastAPI middleware checks `X-API-Key` header. Flutter `ApiService` and `SettingsScreen` updated to store and send API key.
+### Phase 3: Dedup & Stability
+- **US-008**: Semantic dedup — embedding similarity + Claude verification, configurable provider, optional (#new)
+- **US-009**: Session expiry notification — pre-expiry warning + post-expiry alert via delivery plugins (#24)
 
-4. **Deduplication (US-005)**: New migration `004_add_content_hash.sql`. SHA-256 hash of normalized post text. Unique index on `content_hash` (NULL allowed for existing rows).
+### Phase 4: App UX
+- **US-010**: Flutter platform indicator — platform badge with brand colors on cards (#17)
+- **US-011**: Archive view + search — "저장고" button, keyword search, platform filter, newest-first (#new)
+- **US-012**: Post notes/comments — long-press to add memo, notes table, indicator icon (#12)
+- **US-013**: Cross-platform share — share_plus package, native share sheet (#11)
 
-5. **Clickable URLs (US-006)**: Flutter `expanded_content.dart` — replace `Text` with `RichText`/`Text.rich` using `TextSpan` with `TapGestureRecognizer` for detected URLs.
-
-6. **Installation guide (US-007)**: `docs/installation.md` + README update. Must be done last.
-
-### Dependency chain
-- US-001 → US-002 (plugin base before Slack refactor)
-- US-003 → US-004 (server config before API key)
-- US-005, US-006 are independent
-- US-007 is last (documents all changes)
+### Phase 5: AI & Feedback
+- **US-014**: AI unified daily digest — Claude summarization across all platforms, delivery plugin (#23)
+- **US-015**: Feedback data accumulation — store swipe decisions for future learning (#22)
 
 ## DB Schema (after all migrations)
 
@@ -83,10 +95,10 @@ run_logs(id TEXT PK, run_type TEXT, started_at TEXT, finished_at TEXT,
          status TEXT, posts_scraped INT, posts_classified INT,
          posts_delivered INT, error_message TEXT)
 
--- posts: scraped LinkedIn posts
+-- posts: scraped social feed posts (multi-platform)
 posts(id TEXT PK, platform TEXT, author_name TEXT, author_url TEXT,
-      post_url TEXT UNIQUE, post_text TEXT, media_type TEXT,
-      post_timestamp TEXT, scraped_at TEXT, run_id TEXT FK→run_logs)
+      post_url TEXT UNIQUE, post_text TEXT, content_hash TEXT UNIQUE,
+      media_type TEXT, post_timestamp TEXT, scraped_at TEXT, run_id TEXT FK→run_logs)
 
 -- classifications: AI classification results
 classifications(id TEXT PK, post_id TEXT UNIQUE FK→posts, category TEXT,
@@ -95,9 +107,22 @@ classifications(id TEXT PK, post_id TEXT UNIQUE FK→posts, category TEXT,
                 delivered INT, delivered_at TEXT,
                 swipe_status TEXT DEFAULT 'pending',  -- migration 003
                 swiped_at TEXT)                        -- migration 003
+
+-- New tables (v2):
+-- embeddings: semantic dedup vectors (migration 005)
+embeddings(post_id TEXT PK FK→posts, vector BLOB, model TEXT, created_at TEXT)
+
+-- notes: user notes on posts (migration 006)
+notes(id TEXT PK, classification_id TEXT UNIQUE FK→classifications,
+      note_text TEXT, created_at TEXT, updated_at TEXT)
+
+-- feedback: swipe action data for future learning (migration 007)
+feedback(id TEXT PK, classification_id TEXT FK→classifications,
+         action TEXT, platform TEXT, category TEXT, confidence REAL, created_at TEXT)
 ```
 
 `swipe_status` values: `'pending'` | `'archived'` | `'deleted'`
+`platform` values: `'linkedin'` | `'x'` | `'threads'` | `'reddit'` | `'rss'`
 
 ## Migration System
 
@@ -133,12 +158,17 @@ classifications(id TEXT PK, post_id TEXT UNIQUE FK→posts, category TEXT,
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/posts` | Feed for swipe UI (filtered by category + swipe_status) |
+| GET | `/api/posts` | Feed for swipe UI (category, swipe_status, platform, q params) |
 | GET | `/api/posts/{classification_id}` | Single post detail |
 | POST | `/api/posts/{classification_id}/archive` | Swipe left — archive |
 | POST | `/api/posts/{classification_id}/delete` | Swipe right — delete |
+| POST | `/api/posts/{classification_id}/note` | Create/update note |
+| GET | `/api/posts/{classification_id}/note` | Get note |
+| DELETE | `/api/posts/{classification_id}/note` | Delete note |
 | POST | `/api/pipeline/run` | Trigger scrape+classify (background task) |
 | GET | `/api/pipeline/status` | Latest pipeline run status |
+| POST | `/api/digest/generate` | Generate and return daily digest |
+| GET | `/api/feedback/stats` | Feedback data analytics |
 
 ## Flutter App Architecture
 
@@ -147,6 +177,9 @@ classifications(id TEXT PK, post_id TEXT UNIQUE FK→posts, category TEXT,
 - `flutter_card_swiper` for Tinder-style swiping
 - `provider` for state management
 - `flutter_secure_storage` for settings persistence
+- **New screens**: ArchiveScreen (저장고 — keyword search, platform filter, infinite scroll)
+- **New widgets**: platform badge (brand color + icon per platform), note indicator, share button
+- **Platform colors**: LinkedIn (#0A66C2), X (#000000), Threads (#000000), Reddit (#FF4500), RSS (#F26522)
 
 ## Commands
 
